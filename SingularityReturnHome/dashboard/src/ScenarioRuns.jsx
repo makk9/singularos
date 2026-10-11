@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react'
 const EVENT_TEXT = {
   anomaly_detected: (e) => `Anomaly: motion differs from commands by ${e.residual_m_s.toFixed(2)} m/s`,
   orbital_triage: (e) => `Orbit triage: ${e.decision}. ${e.reasons.join('; ')}`,
+  llm_advice: (e) => (e.error
+    ? `LLM advice (${e.point}): unavailable, ${e.error}`
+    : `LLM advice (${e.point}, advisory only): ${e.proposal.mode} / ${e.proposal.plan.action}, `
+      + (e.review.agrees_with_deterministic ? 'agrees' : `differs from ${e.review.deterministic_mode}`)
+      + (e.review.failed.length ? `; failed checks: ${e.review.failed.join(', ')}` : '')),
   investigate_start: () => 'Investigating: braking, then testing thrusters',
   diagnostic: (e) => `${e.thruster} thruster: ${e.estimate === 0 ? 'FAILED' : `${Math.round(e.estimate * 100)}%`} (${e.method})`,
   plan: (e) => `Plan: ${e.decision}. ${e.reasons.join('; ')}`,

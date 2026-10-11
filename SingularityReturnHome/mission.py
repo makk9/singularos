@@ -38,9 +38,11 @@ else:
     else:
         print("RECOVERY: ABORTED")
 
-# AI mission assessment — advisory only
+# AI mission assessment — advisory only. Server and model come from
+# SINGULAROS_LLM_URL / SINGULAROS_LLM_MODEL (intelligence/llm.py).
 import json
-import urllib.request
+
+from intelligence.llm import LLMClient, LLMError
 
 incident = {
     "communications": "LOST",
@@ -52,27 +54,16 @@ incident = {
     "recovery_feasible": safety["authorized"] if safety else None,
 }
 
-payload = json.dumps({
-    "model": "qwen3.8:27b",
-    "prompt": (
-        "You are Singularity Return Home's emergency analysis AI. "
-        "Summarize the emergency, recovery decision, and remaining risks "
-        "in three concise sentences. Do not issue commands. "
-        + json.dumps(incident)
-    ),
-    "think": False,
-    "stream": False,
-}).encode()
+prompt = (
+    "You are Singularity Return Home's emergency analysis AI. "
+    "Summarize the emergency, recovery decision, and remaining risks "
+    "in three concise sentences. Do not issue commands. "
+    + json.dumps(incident)
+)
 
 try:
-    request = urllib.request.Request(
-        "http://10.0.2.2:11434/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=180) as response:
-        result = json.load(response)
-    print("AI ASSESSMENT:", result["response"].strip())
-except Exception as error:
+    summary = LLMClient().chat([{"role": "user", "content": prompt}])
+    print("AI ASSESSMENT:", summary.strip())
+except LLMError as error:
     print("AI UNAVAILABLE:", error)
     print("Deterministic mission control remains operational.")

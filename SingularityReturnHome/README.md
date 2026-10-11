@@ -24,7 +24,8 @@ recovery uses the two-body modules in this directory: `simulation/orbit.py`,
 | `navigation/deadline.py` | Time until the orbit descends through a given altitude |
 | `telemetry/api.py` | HTTP API for the dashboard |
 | `dashboard/` | React dashboard |
-| `mission.py`, `control/`, `intelligence/` | One-shot two-body recovery script and LLM assessment |
+| `intelligence/` | LLM client (Ollama or OpenAI-compatible), recovery-proposal harness, check review, advisor |
+| `mission.py`, `control/` | One-shot two-body recovery script |
 | `tests/` | pytest suite |
 
 ## Running
@@ -61,6 +62,55 @@ API endpoints:
 | `GET /api/scenarios` | Scenario names, expected outcomes, faults |
 | `GET /api/run?scenario=NAME[&seed=N]` | Runs the scenario (or reuses a finished run): summary, track sampled every 1 s, controller events |
 | `GET /api/replay?scenario=NAME[&seed=N]` | The run's `replay.html` |
+
+## LLM advisor
+
+The LLM proposes and interprets; it never drives actuators and never
+asserts feasibility (MISSION.md section 7). With `--llm`, the controller asks
+it for a proposal at each decision point (orbit triage, recovery plan) and
+logs the reply as an `llm_advice` event next to the deterministic decision,
+which keeps actuator authority. Without a reachable server and model, the
+run continues deterministic-only.
+
+```sh
+ollama pull hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M    # once, 5.7 GB
+ollama serve                                        # if not already running
+.venv/bin/python -m singularos_sim scenarios/orbital_strike_safe_orbit.toml --llm
+```
+
+Settings (environment):
+
+| Variable | Default | |
+|---|---|---|
+| `SINGULAROS_LLM_URL` | `http://127.0.0.1:11434` (`openai`: `http://127.0.0.1:8080`) | From inside a QEMU guest (user-mode networking): `http://10.0.2.2:11434` |
+| `SINGULAROS_LLM_MODEL` | `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | Any name from `ollama list` |
+| `SINGULAROS_LLM_BACKEND` | `ollama` | `openai` for an OpenAI-compatible server, e.g. llama.cpp in `docker/` |
+| `SINGULAROS_LLM_THINK` | unset | `true`/`false`: Ollama `think` option for thinking models |
+| `SINGULAROS_LLM_TIMEOUT` | `180` | Seconds per request |
+
+Pipeline (`intelligence/`, harness from PR #3):
+
+1. `llm.py` sends the chat with the proposal schema as structured output
+   (Ollama: `POST /api/chat` with `format`; OpenAI-compatible:
+   `response_format` `json_schema`).
+2. `harness.py` re-checks the reply against the schema in Python, then
+   semantic rules (e.g. `DOCKED` must request `DOCK_ALIGNMENT` and
+   `OBSERVATION_FRESHNESS`; `RAISE_PERIGEE` must request `FUEL_BUDGET` and
+   `ORBIT_SAFETY`), retrying with feedback up to twice.
+3. `review.py` runs the requested checks against the planner's numbers
+   (delta-v budget, orbit safety, independent perigee-raise validation,
+   thruster health, docking criteria) and records whether the proposal
+   agrees with the deterministic decision. `COLLISION_CHECK` reports not
+   evaluated: routes are pre-planned.
+
+`schemas/recovery-proposal.json` (version 2): mode from the MISSION.md
+section 8 vocabulary; plan actions include `BRAKE` and `RAISE_PERIGEE`;
+`max_delta_v_mps` up to 1000 and `max_relative_speed_mps` up to 20 for
+orbit-scale recovery.
+
+`mission.py` and `intelligence/assess.py` use the same client for their
+incident summaries. Tests run against an in-process fake Ollama server; set
+`SINGULAROS_LLM_INTEGRATION=1` to also test the configured live server.
 
 ## Physics
 

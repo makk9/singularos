@@ -63,7 +63,9 @@ def truth_docking_check(state, config):
     }
 
 
-def run_scenario(config, out_dir=None):
+def run_scenario(config, out_dir=None, advisor=None):
+    """Run one scenario. advisor: optional callable passed to the controller
+    for LLM advice at decision points (logged only; see controller)."""
     scenario = config["scenario"]
     dt = scenario["sim_dt_s"]
     ctrl_steps = steps_for(scenario["controller_period_s"], dt, "controller_period_s")
@@ -79,7 +81,7 @@ def run_scenario(config, out_dir=None):
     sensors = build_sensors(config)
     controller = Controller(
         controller_spec(config), config["mission"], config["controller"], config["docking"], config["recovery"],
-        config["orbital"],
+        config["orbital"], advisor,
     )
     n = mean_motion(config["orbit"]["period_s"])
     min_altitude = (float("inf"), None)
@@ -208,6 +210,7 @@ def run_scenario(config, out_dir=None):
         "min_altitude_km": {"altitude_km": min_altitude[0], "t": min_altitude[1]},
         "reentry": reentry,
         "orbital_triage": next((e for e in controller_events if e["type"] == "orbital_triage"), None),
+        "llm_advice": [e for e in controller_events if e["type"] == "llm_advice"],
         "final_position_m": [final.x_m, final.y_m],
         "plan": next((e for e in reversed(controller_events) if e["type"] == "plan"), None),
         # Evaluation only: compare the controller's estimates with truth.

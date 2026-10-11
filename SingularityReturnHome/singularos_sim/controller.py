@@ -68,6 +68,11 @@ the response is the investigation above. If not:
     perigee, then HOLD in that orbit, thrusters off. The fault monitor is
     off during this burn.
   ABORT: as below.
+LLM advice (optional): if an advisor callable is given, it is called at
+each decision point (orbit triage, recovery plan) with a context dict of
+controller-side information (_advice_context) and its reply is logged as an
+llm_advice event. The reply never changes the command: the deterministic
+decision keeps actuator authority (MISSION.md section 7).
 Far-range return: from beyond orbital.far_range_m, RETURN first flies
 straight in toward the dock to orbital.far_approach_radius_m at
 orbital.far_transit_speed_m_s, then follows the loop from the route point
@@ -107,7 +112,7 @@ class Leg:
 
 
 class Controller:
-    def __init__(self, spec, mission, params, docking, recovery, orbital=None):
+    def __init__(self, spec, mission, params, docking, recovery, orbital=None, advisor=None):
         self.spec = spec
         self.params = params
         self.docking = docking
@@ -115,6 +120,7 @@ class Controller:
         self.orbital = {**ORBITAL_DEFAULTS, **(orbital or {})}
         self.hold_kind = None  # "station" or "safe_orbit" once HOLD is declared
         self.safe_orbit = None  # active safe-orbit burn
+        self.advisor = advisor
         self.n = mean_motion(spec["orbit_period_s"])
         self.staging = tuple(mission["staging_point_m"])
         self.dock_heading = mission["dock_heading_rad"]
@@ -812,6 +818,14 @@ class Controller:
         if approach:
             assessment["far_approach_m"] = list(approach)
         self.events.append({"t": t, "type": "plan", **assessment})
+        if self.advisor is not None:
+            needed = assessment["fuel_needed_kg"]
+            self._advise(t, "plan", decision, assessment["reasons"], nav, {
+                "dock_feasible": decision == "RETURN",
+                "return_fuel_ok": None if needed is None else needed * r["fuel_margin"] <= fuel_kg - r["fuel_reserve_kg"],
+                "available_delta_v_m_s": planner.available_delta_v(
+                    self.spec, self.health, self._usable(), fuel_kg, self._mass_estimate(), r["fuel_reserve_kg"]),
+            })
         if self.final == "ABORT":
             return self._abort_brake(t, nav, att)
         return self._fly_legs(t, nav, att)
@@ -825,7 +839,55 @@ class Controller:
                                         nav.value, self.recovery, self.orbital)
         if triage is not None:
             self.events.append({"t": t, "type": "orbital_triage", **triage})
+            if self.advisor is not None:
+                m = self.orbital["delta_v_margin"]
+                budget = triage["available_delta_v_m_s"]
+                deadline = triage["time_to_reentry_s"]
+                self._advise(t, "orbital_triage", triage["decision"], triage["reasons"], nav, {
+                    "orbit": triage["orbit"],
+                    "time_to_reentry_s": deadline,
+                    "available_delta_v_m_s": budget,
+                    "brake_feasible": triage["brake_delta_v_m_s"] * m <= budget
+                    and (deadline is None or triage["brake_time_s"] < deadline),
+                    "safe_orbit_authorized": triage["safe_orbit_safety"]["authorized"],
+                    "safe_orbit_delta_v_m_s": triage["safe_orbit_plan"].get("delta_v_m_s"),
+                })
         return triage
+
+    ADVICE_MODES = {"BRAKE": "INVESTIGATE", "SAFE_ORBIT": "HOLD"}
+
+    def _advice_context(self, t, point, decision, reasons, nav, extra):
+        v = nav.value
+        state = (v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"])
+        fuel = self.latest.get("fuel_monitor")
+        att = self.latest.get("attitude_sensor")
+        ctx = {
+            "t": t,
+            "point": point,
+            "decision": decision,
+            "mode": self.ADVICE_MODES.get(decision, decision),
+            "reasons": list(reasons),
+            "observed": {"x_m": round(v["x_m"], 2), "y_m": round(v["y_m"], 2),
+                         "vx_m_s": round(v["vx_m_s"], 3), "vy_m_s": round(v["vy_m_s"], 3),
+                         "heading_rad": round(att.value["heading_rad"], 3) if att else None,
+                         "fuel_kg": round(fuel.value["fuel_kg"], 3) if fuel else None},
+            "health_estimate": dict(self.health),
+            "usable": sorted(self._usable(), key=THRUSTER_NAMES.index),
+            "orbit": orbit_status(self.n, *state),
+            "safe_perigee_km": self.orbital["safe_perigee_km"],
+            "docking_check": None,
+        }
+        ctx.update(extra)
+        return ctx
+
+    def _advise(self, t, point, decision, reasons, nav, extra):
+        """Ask the advisor and log its reply; the command is unaffected."""
+        ctx = self._advice_context(t, point, decision, reasons, nav, extra)
+        try:
+            advice = self.advisor(ctx)
+        except Exception as e:  # an advisor failure must not stop the controller
+            advice = {"error": f"{type(e).__name__}: {e}"}
+        self.events.append({"t": t, "type": "llm_advice", "point": point, "decision": decision, **advice})
 
     def _safe_orbit_burn(self, t, nav, att):
         """Prograde burn until the observed perigee clears the safe altitude

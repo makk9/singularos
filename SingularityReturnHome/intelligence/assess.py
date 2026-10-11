@@ -1,5 +1,9 @@
 import json
-import urllib.request
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from intelligence.llm import LLMClient, LLMError
 
 incident = {
     "communications": "LOST",
@@ -18,22 +22,9 @@ prompt = (
     + json.dumps(incident)
 )
 
-payload = json.dumps({
-    "model": "qwen3.8:27b",
-    "prompt": prompt,
-    "think": False,
-    "stream": False
-}).encode()
-
 try:
-    request = urllib.request.Request(
-        "http://10.0.2.2:11434/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(request, timeout=180) as response:
-        result = json.load(response)
-    print("AI ASSESSMENT:", result["response"].strip())
-except Exception as error:
+    summary = LLMClient().chat([{"role": "user", "content": prompt}])
+    print("AI ASSESSMENT:", summary.strip())
+except LLMError as error:
     print("AI UNAVAILABLE:", error)
     print("Deterministic recovery remains independent.")

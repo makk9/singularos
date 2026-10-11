@@ -1,4 +1,4 @@
-"""CLI: python -m singularos_sim [scenario.toml] [--seed N] [--out DIR]
+"""CLI: python -m singularos_sim [scenario.toml] [--seed N] [--out DIR] [--llm]
         python -m singularos_sim --all [--seed N]"""
 
 import argparse
@@ -8,6 +8,20 @@ from pathlib import Path
 from .config import default_scenario_path, load_config, with_seed
 from .replay import build_replay, describe_faults
 from .runner import run_scenario
+
+
+def make_advisor():
+    """LLM advisor from SINGULAROS_LLM_* settings, or None if the server or
+    model is unavailable (the run then continues deterministic-only)."""
+    from intelligence.advisor import RecoveryAdvisor
+    from intelligence.harness import RecoveryHarness
+    from intelligence.llm import LLMClient
+
+    client = LLMClient()
+    status = client.health()
+    print(f"llm: {client.config.backend} at {client.config.base_url}, model {client.config.model or '(unset)'}: "
+          + ("ready" if status["ok"] else f"unavailable ({status['detail']}); running without advice"))
+    return RecoveryAdvisor(RecoveryHarness(client)) if status["ok"] else None
 
 
 def run_all(seed):
@@ -52,13 +66,15 @@ def main(argv=None):
     parser.add_argument("--out", default=None, help="output directory (default: runs/<name>-seed<seed>)")
     parser.add_argument("--all", action="store_true",
                         help="run every scenario in scenarios/ and link the replays with a scenario picker")
+    parser.add_argument("--llm", action="store_true",
+                        help="ask the LLM advisor at decision points (SINGULAROS_LLM_URL, SINGULAROS_LLM_MODEL); logged only")
     args = parser.parse_args(argv)
 
     if args.all:
         return run_all(args.seed)
 
     config = with_seed(load_config(args.scenario), args.seed)
-    s = run_scenario(config, args.out)
+    s = run_scenario(config, args.out, make_advisor() if args.llm else None)
     replay = build_replay(s["out_dir"])
     truth = s["truth_docking_check"]
     print(f"scenario: {s['scenario']}  seed: {s['seed']}")
@@ -83,6 +99,15 @@ def main(argv=None):
     end = s["orbit_at_end"]
     print(f"vehicle orbit at end: altitude {end['altitude_km']:.1f} km, perigee {end['perigee_km']:.1f} km"
           + (f"  REENTRY at t={s['reentry']['t']:.0f} s" if s["reentry"] else ""))
+    for advice in s["llm_advice"]:
+        if "error" in advice:
+            print(f"llm advice at {advice['point']} t={advice['t']:.1f} s: error: {advice['error']}")
+        else:
+            rv = advice["review"]
+            print(f"llm advice at {advice['point']} t={advice['t']:.1f} s: {advice['proposal']['mode']} "
+                  f"/ {advice['proposal']['plan']['action']} ("
+                  + ("agrees" if rv["agrees_with_deterministic"] else f"differs from {rv['deterministic_mode']}")
+                  + (f", failed checks: {', '.join(rv['failed'])}" if rv["failed"] else "") + ")")
     if s["plan"]:
         print(f"recovery decision: {s['plan']['decision']}; " + "; ".join(s["plan"]["reasons"]))
     print(f"sim time: {s['sim_time_s']:.2f} s  steps: {s['steps']}")

@@ -1,0 +1,310 @@
+import json
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+
+from intelligence.advisor import RecoveryAdvisor, context_text
+from intelligence.harness import (
+    Proposal, ProposalValidationError, RecoveryHarness, load_schema, schema_problems, semantic_problems,
+)
+from intelligence.llm import LLMClient, LLMConfig
+from intelligence.review import review
+from singularos_sim.config import load_config
+from singularos_sim.runner import run_scenario
+
+SCENARIOS = Path(__file__).resolve().parent.parent / "scenarios"
+MODEL = "test-model:latest"
+
+
+def proposal(**overrides):
+    p = {
+        "schema_version": 2,
+        "mode": "INVESTIGATE",
+        "rationale": "Station beacon dropout suggests sensor fault.",
+        "requested_checks": ["OBSERVATION_FRESHNESS"],
+        "plan": {"action": "MAINTAIN", "parameters": {}},
+    }
+    p.update(overrides)
+    return p
+
+
+class FakeOllama:
+    """Minimal Ollama API: /api/version, /api/tags, /api/chat. Replies to
+    /api/chat with the queued contents in order, repeating the last one."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.requests = []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def send(self, data):
+                body = json.dumps(data).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                if self.path == "/health":
+                    self.send({"status": "ok"})
+                elif self.path == "/api/version":
+                    self.send({"version": "0.0.0-test"})
+                elif self.path == "/api/tags":
+                    self.send({"models": [{"name": MODEL, "model": MODEL}]})
+                else:
+                    self.send_error(404)
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                fake.requests.append((self.path, body))
+                content = fake.replies.pop(0) if len(fake.replies) > 1 else fake.replies[0]
+                if self.path == "/api/chat":
+                    self.send({"model": body["model"], "message": {"role": "assistant", "content": content},
+                               "done": True, "done_reason": "stop"})
+                elif self.path == "/v1/chat/completions":  # llama.cpp llama-server
+                    self.send({"choices": [{"message": {"role": "assistant", "content": content}}]})
+                else:
+                    self.send_error(404)
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+@pytest.fixture
+def ollama_factory():
+    servers = []
+
+    def make(replies):
+        s = FakeOllama(replies)
+        servers.append(s)
+        return s
+
+    yield make
+    for s in servers:
+        s.close()
+
+
+def client_for(server, **kw):
+    return LLMClient(LLMConfig(base_url=server.url, model=MODEL, **kw))
+
+
+# ------------------------------------------------------------- configuration
+
+
+def test_config_from_env_defaults_to_local_ollama():
+    c = LLMConfig.from_env({})
+    assert (c.backend, c.base_url, c.model, c.think) == (
+        "ollama", "http://127.0.0.1:11434", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M", None)
+    openai = LLMConfig.from_env({"SINGULAROS_LLM_BACKEND": "openai"})
+    assert (openai.model, openai.base_url) == (None, "http://127.0.0.1:8080")
+    c = LLMConfig.from_env({"SINGULAROS_LLM_URL": "http://10.0.2.2:11434", "SINGULAROS_LLM_MODEL": "m",
+                            "SINGULAROS_LLM_THINK": "false", "SINGULAROS_LLM_BACKEND": "openai"})
+    assert (c.base_url, c.model, c.think, c.backend) == ("http://10.0.2.2:11434", "m", False, "openai")
+    with pytest.raises(ValueError):
+        LLMConfig.from_env({"SINGULAROS_LLM_BACKEND": "other"})
+
+
+def test_unreachable_server_reports_unhealthy():
+    status = LLMClient(LLMConfig(base_url="http://127.0.0.1:9", model=MODEL)).health()
+    assert status["ok"] is False
+
+
+# ------------------------------------------------------------- ollama client
+
+
+def test_ollama_chat_request_uses_native_api_with_schema(ollama_factory):
+    server = ollama_factory([json.dumps(proposal())])
+    schema = load_schema()
+    content = client_for(server, think=False).chat([{"role": "user", "content": "hi"}], schema)
+    assert json.loads(content)["mode"] == "INVESTIGATE"
+    path, body = server.requests[0]
+    assert path == "/api/chat"
+    assert body["model"] == MODEL and body["stream"] is False
+    assert body["format"] == schema and body["think"] is False
+    assert body["options"]["temperature"] == pytest.approx(0.2)
+
+
+def test_ollama_health_checks_model_is_pulled(ollama_factory):
+    server = ollama_factory(["{}"])
+    assert client_for(server).health()["ok"]
+    assert LLMClient(LLMConfig(base_url=server.url, model="test-model")).health()["ok"]  # ":latest" implied
+    assert LLMClient(LLMConfig(base_url=server.url, model="TEST-MODEL:LATEST")).health()["ok"]
+    missing = LLMClient(LLMConfig(base_url=server.url, model="other")).health()
+    assert not missing["ok"] and "not pulled" in missing["detail"]
+
+
+def test_ollama_without_model_is_an_error(ollama_factory):
+    server = ollama_factory(["{}"])
+    harness = RecoveryHarness(LLMClient(LLMConfig(base_url=server.url)))
+    with pytest.raises(Exception, match="SINGULAROS_LLM_MODEL"):
+        harness.propose("context")
+
+
+def test_openai_backend_for_llama_cpp(ollama_factory):
+    server = ollama_factory([json.dumps(proposal())])
+    client = LLMClient(LLMConfig(base_url=server.url, backend="openai"))
+    assert client.health()["ok"]
+    p = RecoveryHarness(client).propose("context")
+    assert p.mode == "INVESTIGATE"
+    path, body = server.requests[0]
+    assert path == "/v1/chat/completions"
+    assert body["response_format"]["json_schema"]["schema"] == load_schema()
+    assert "model" not in body  # llama-server serves the model it was started with
+
+
+# ------------------------------------------------------------------- harness
+
+
+def test_schema_loads_and_forbids_extra_fields():
+    schema = load_schema()
+    assert schema["properties"]["schema_version"]["const"] == 2
+    assert schema["additionalProperties"] is False
+    assert "ORBIT_SAFETY" in schema["properties"]["requested_checks"]["items"]["enum"]
+
+
+def test_schema_recheck_catches_what_a_server_might_not_enforce():
+    schema = load_schema()
+    assert schema_problems(proposal(), schema) == []
+    bad = proposal(mode="PANIC", extra=1, requested_checks=["FUEL_BUDGET", "FUEL_BUDGET"],
+                   plan={"action": "BRAKE", "parameters": {"max_delta_v_mps": 5000}})
+    problems = " | ".join(schema_problems(bad, schema))
+    for fragment in ("PANIC", "extra", "unique", "out of bounds"):
+        assert fragment in problems
+
+
+@pytest.mark.parametrize("overrides, fragment", [
+    ({"mode": "PANIC"}, "PANIC"),
+    ({"mode": "DOCKED", "requested_checks": []}, "DOCK_ALIGNMENT"),
+    ({"requested_checks": ["FUEL_BUDGET", "FUEL_BUDGET"]}, "unique"),
+    ({"rationale": "RECOVERY"}, "rationale"),
+    ({"mode": "ABORT"}, "retreat"),
+    ({"plan": {"action": "RAISE_PERIGEE", "parameters": {}}, "requested_checks": ["FUEL_BUDGET"]}, "ORBIT_SAFETY"),
+    ({"plan": {"action": "BRAKE", "parameters": {}}, "requested_checks": []}, "FUEL_BUDGET"),
+])
+def test_semantic_problems(overrides, fragment):
+    assert any(fragment in p for p in semantic_problems(proposal(**overrides)))
+
+
+def test_semantic_valid_cases():
+    assert semantic_problems(proposal()) == []
+    assert semantic_problems(proposal(mode="DOCKED", requested_checks=["DOCK_ALIGNMENT", "OBSERVATION_FRESHNESS"],
+                                      plan={"action": "DOCK_SEQUENCE", "parameters": {}})) == []
+    assert semantic_problems(proposal(mode="ABORT", plan={"action": "SAFE_RETREAT", "parameters": {}})) == []
+
+
+def test_proposal_properties():
+    p = Proposal(raw=proposal())
+    assert (p.mode, p.requested_checks, p.plan["action"]) == ("INVESTIGATE", ["OBSERVATION_FRESHNESS"], "MAINTAIN")
+
+
+def test_harness_retries_with_feedback_then_succeeds(ollama_factory):
+    server = ollama_factory(["not json", json.dumps(proposal(rationale="short")), json.dumps(proposal())])
+    p = RecoveryHarness(client_for(server)).propose("context")
+    assert p.mode == "INVESTIGATE"
+    assert len(server.requests) == 3
+    feedback = server.requests[2][1]["messages"][-1]["content"]
+    assert "failed validation" in feedback and "rationale" in feedback
+
+
+def test_harness_gives_up_after_retries(ollama_factory):
+    server = ollama_factory([json.dumps(proposal(mode="PANIC"))])
+    with pytest.raises(ProposalValidationError):
+        RecoveryHarness(client_for(server), max_retries=1).propose("context")
+    assert len(server.requests) == 2
+
+
+# ---------------------------------------------------------- review / advisor
+
+
+def triage_context(**overrides):
+    ctx = {
+        "t": 160.6, "point": "orbital_triage", "decision": "SAFE_ORBIT", "mode": "HOLD",
+        "reasons": ["perigee -104.6 km below safe 200 km"],
+        "observed": {"x_m": 0.0, "y_m": 0.0, "vx_m_s": 0.0, "vy_m_s": -150.0, "heading_rad": 0.0, "fuel_kg": 3.1},
+        "health_estimate": {"forward": 1.0, "backward": 1.0, "left": 1.0, "right": 1.0},
+        "usable": ["forward", "backward", "left", "right"],
+        "orbit": {"altitude_km": 400.0, "speed_km_s": 7.52, "eccentricity": 0.0387, "perigee_km": -104.6},
+        "safe_perigee_km": 200.0, "docking_check": None, "time_to_reentry_s": 1435.0,
+        "available_delta_v_m_s": 144.0, "brake_feasible": False, "safe_orbit_authorized": True,
+        "safe_orbit_delta_v_m_s": 92.1,
+    }
+    ctx.update(overrides)
+    return ctx
+
+
+def test_review_runs_requested_checks_against_planner_numbers():
+    ok = Proposal(raw=proposal(mode="HOLD", requested_checks=["FUEL_BUDGET", "ORBIT_SAFETY", "TRAJECTORY_FEASIBILITY"],
+                               plan={"action": "RAISE_PERIGEE", "parameters": {"max_delta_v_mps": 95}}))
+    r = review(ok, triage_context())
+    assert r["failed"] == [] and r["agrees_with_deterministic"]
+    brake = Proposal(raw=proposal(mode="INVESTIGATE", requested_checks=["FUEL_BUDGET", "ORBIT_SAFETY"],
+                                  plan={"action": "BRAKE", "parameters": {"max_delta_v_mps": 180}}))
+    r = review(brake, triage_context())
+    assert set(r["failed"]) == {"FUEL_BUDGET", "ORBIT_SAFETY"} and not r["agrees_with_deterministic"]
+    collision = Proposal(raw=proposal(requested_checks=["COLLISION_CHECK"]))
+    assert review(collision, triage_context())["checks"]["COLLISION_CHECK"]["pass"] is None
+
+
+def test_advisor_turns_server_failure_into_error_record():
+    advisor = RecoveryAdvisor(RecoveryHarness(LLMClient(LLMConfig(base_url="http://127.0.0.1:9", model=MODEL))))
+    result = advisor(triage_context())
+    assert "error" in result and "proposal" not in result
+
+
+def test_context_text_carries_decision_and_budget():
+    text = context_text(triage_context())
+    assert "SAFE_ORBIT" in text and "144.0" in text and "1435.0" in text
+
+
+# ------------------------------------------------------- end to end, sim run
+
+
+def test_advice_is_logged_and_never_changes_the_run(ollama_factory, tmp_path):
+    reply = proposal(mode="HOLD", requested_checks=["FUEL_BUDGET", "ORBIT_SAFETY", "TRAJECTORY_FEASIBILITY"],
+                     rationale="Perigee is below the surface; a 92 m/s prograde burn fits the budget.",
+                     plan={"action": "RAISE_PERIGEE", "parameters": {"max_delta_v_mps": 95}})
+    server = ollama_factory([json.dumps(reply)])
+    config = load_config(SCENARIOS / "orbital_strike_safe_orbit.toml")
+    plain = run_scenario(config, tmp_path / "plain")
+    advised = run_scenario(config, tmp_path / "advised", RecoveryAdvisor(RecoveryHarness(client_for(server))))
+
+    assert advised["outcome"] == plain["outcome"] == "HOLD"
+    assert advised["fuel_used_kg"] == plain["fuel_used_kg"]
+    assert advised["final_position_m"] == plain["final_position_m"]
+    [advice] = advised["llm_advice"]
+    assert advice["point"] == "orbital_triage" and advice["decision"] == "SAFE_ORBIT"
+    assert advice["review"]["agrees_with_deterministic"] and advice["review"]["failed"] == []
+    # The prompt carried controller-side numbers, not truth.
+    prompt = server.requests[0][1]["messages"][1]["content"]
+    assert "SAFE_ORBIT" in prompt and "effectiveness" not in prompt
+
+
+def test_unreachable_advisor_does_not_stop_the_run(tmp_path):
+    advisor = RecoveryAdvisor(RecoveryHarness(LLMClient(LLMConfig(base_url="http://127.0.0.1:9", model=MODEL))))
+    summary = run_scenario(load_config(SCENARIOS / "thruster_fault.toml"), tmp_path, advisor)
+    assert summary["outcome"] == "DOCKED"
+    assert summary["llm_advice"] and all("error" in a for a in summary["llm_advice"])
+
+
+# ------------------------------------------------------- live server (opt-in)
+
+
+@pytest.mark.skipif(not os.environ.get("SINGULAROS_LLM_INTEGRATION"),
+                    reason="set SINGULAROS_LLM_INTEGRATION=1 (plus SINGULAROS_LLM_URL/MODEL) to test a live server")
+def test_live_server_returns_valid_proposal():
+    client = LLMClient()
+    assert client.health()["ok"], client.health()["detail"]
+    advice = RecoveryAdvisor(RecoveryHarness(client))(triage_context())
+    assert "proposal" in advice, advice.get("error")

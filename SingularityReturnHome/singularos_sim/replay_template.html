@@ -635,6 +635,8 @@
 
   function describe(e) {
     const pct = x => `${(100 * x).toFixed(0)}%`;
+    // Model output is untrusted text; escape it before it reaches innerHTML.
+    const esc = x => String(x).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
     switch (e.type) {
       case "impact": return `Particle impact: delta-v (${e.delta_v_m_s.map(x => x.toFixed(2)).join(", ")}) m/s, spin ${e.delta_omega_rad_s.toFixed(2)} rad/s`;
       case "thruster_fault": return `${e.thruster} thruster output now ${pct(e.effectiveness)}`;
@@ -648,6 +650,11 @@
         ? `Holding in safe orbit: perigee ${e.orbit.perigee_km.toFixed(1)} km`
         : `Holding at safe point`;
       case "orbital_triage": return `Orbit triage: <b>${e.decision}</b>. ${e.reasons.join("; ")}`;
+      case "llm_advice": return e.error ? `LLM advice (${e.point}): unavailable, ${esc(e.error)}`
+        : `LLM advice (${e.point}, advisory only): <b>${e.proposal.mode}</b> / ${e.proposal.plan.action}, `
+          + (e.review.agrees_with_deterministic ? "agrees" : `differs from ${e.review.deterministic_mode}`)
+          + (e.review.failed.length ? `; failed checks: ${e.review.failed.join(", ")}` : "")
+          + `. ${esc(e.proposal.rationale)}`;
       case "reentry": return `Reentry: descended through ${e.altitude_km.toFixed(1)} km`;
       case "abort": return `ABORT: ${e.reason}`;
       default: return e.type;
