@@ -1,0 +1,27 @@
+# Harder recoverable case: the impact kills both lateral thrusters. The
+# forward/backward pair is intact, so the craft can still return by turning
+# that pair toward each push it needs, and dock. Expected: DOCKED.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_fault_two_lateral"
+expected_outcome = "DOCKED"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "left"
+effectiveness = 0.0
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "right"
+effectiveness = 0.0

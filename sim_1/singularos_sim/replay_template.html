@@ -74,7 +74,7 @@
   <span class="meta" id="meta"></span>
   <span class="badge" id="outcome"></span>
   <span class="meta" id="collision"></span>
-  <span class="note-right">2D local-proximity model, no orbital mechanics. Inspection is a pose and hold.</span>
+  <span class="note-right">2D orbital relative motion (Clohessy&ndash;Wiltshire). Inspection is a pose and hold.</span>
 </header>
 <main>
   <div id="world-wrap"><canvas id="world"></canvas></div>
@@ -491,7 +491,32 @@
 
     if (f.nav && f.att) ship(g, v, f.nav[0], f.nav[1], f.att[0], 1.2, C("obs"), false, null);
     ship(g, v, pose.x, pose.y, pose.h, 1.2, C("truth"), true, f.thrust, f.health);
+    drawOrbitCompass(g, w, h);
     velocityArrow(g, v, pose.x, pose.y, pose.vx, pose.vy, VMAX, "#ffffff");
+  }
+
+  // Orbit frame: +x radial (away from Earth), +y along-track (orbital motion).
+  function drawOrbitCompass(g, w, h) {
+    const bw = 200, bh = 84, x0 = w - bw - 12, y0 = h - bh - 24, cx = x0 + 58, cy = y0 + 52, L = 30;
+    g.save();
+    g.fillStyle = "rgba(13,17,23,0.88)"; g.strokeStyle = "#30363d"; g.lineWidth = 1;
+    g.fillRect(x0, y0, bw, bh); g.strokeRect(x0, y0, bw, bh);
+    const arrow = (dx, dy, col) => {
+      const ex = cx + dx * L, ey = cy + dy * L;
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(ex, ey); g.stroke();
+      g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex - dx * 7 - dy * 4, ey - dy * 7 + dx * 4);
+      g.lineTo(ex - dx * 7 + dy * 4, ey - dy * 7 - dx * 4); g.closePath(); g.fill();
+    };
+    arrow(-1, 0, "#4fa3e0");
+    arrow(0, -1, "#c9d1d9");
+    g.font = "10px system-ui, sans-serif";
+    g.fillStyle = "#4fa3e0"; g.fillText("Earth", cx - L - 4, cy + 14);
+    g.fillStyle = "#c9d1d9"; g.fillText("orbital motion", cx + 6, cy - L + 4);
+    g.fillStyle = "#8b949e";
+    g.fillText(`LEO, ${(D.orbit_period_s / 60).toFixed(1)} min orbit`, cx + 14, cy - 2);
+    g.fillText("frame moves with station", cx + 14, cy + 12);
+    g.restore();
   }
 
   function drawInset(pose) {

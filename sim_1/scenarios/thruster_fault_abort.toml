@@ -1,0 +1,35 @@
+# Infeasible case with no safe hold: the impact kills three thrusters, leaving
+# only the right one. Docking needs both axial thrusters and HOLD needs an
+# intact opposing pair, so the correct outcome is ABORT: turn the remaining
+# thruster against the velocity, brake, then shut down. The run continues for
+# post_outcome_observe_s to show the unpowered orbital drift afterwards.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_fault_abort"
+expected_outcome = "ABORT"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "forward"
+effectiveness = 0.0
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "backward"
+effectiveness = 0.0
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "left"
+effectiveness = 0.0

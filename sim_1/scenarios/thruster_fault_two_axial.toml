@@ -1,0 +1,28 @@
+# Infeasible docking, feasible hold: the impact kills both axial thrusters
+# (forward and backward). The baseline cannot dock without them, but the
+# left/right pair can be turned to push in any direction, so the correct
+# outcome is HOLD at a safe point, station-keeping against orbital drift.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_fault_two_axial"
+expected_outcome = "HOLD"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "forward"
+effectiveness = 0.0
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "backward"
+effectiveness = 0.0

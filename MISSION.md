@@ -15,7 +15,7 @@ SingularOS is a standalone autonomous emergency recovery application for a small
 ## 2. Explicit non-goals (fixed)
 
 - **Not flight-qualified software.** This is a simulation prototype for a hackathon.
-- **Not orbital mechanics.** 2D local-proximity dynamics only. This omission must be documented wherever physics is described — don't let it get silently assumed away.
+- **Not full orbital mechanics.** 2D in-plane relative motion near the station only: linearised Clohessy–Wiltshire (Hill) dynamics about the station's circular orbit. No orbit propagation, out-of-plane motion, eccentricity, drag or other perturbations. These omissions must be documented wherever physics is described — don't let them get silently assumed away.
 - **Not Omarchy-dependent.** Omarchy is a *future* operator environment. Do not require installing it, and do not spend hackathon time on desktop/OS integration.
 - **Not an unrestricted random-failure generator.** Faults are configured and reproducible (seeded), not arbitrary chaos, and the full recovery loop must work before fault variety is expanded.
 - **The LLM is not the flight controller.** It never executes per-timestep control and never invents numerical feasibility results. Those come only from the numerical planner/validator.
@@ -28,8 +28,8 @@ SingularOS detects the abnormal behavior and activates emergency recovery. Its L
 
 ## 4. World model conventions (fixed)
 
-- **Environment:** 2D local proximity space around a stationary dock.
-- **Reference frame:** station-centered; dock at the origin at scenario start.
+- **Environment:** 2D local proximity space around a dock on a station in circular orbit. Relative motion follows the Clohessy–Wiltshire equations, so an unpowered vehicle drifts relative to the station.
+- **Reference frame:** station-centered and moving with the station; dock at the origin. Axis convention: +x radial (away from Earth), +y along-track (direction of orbital motion).
 - **Units:** SI only — meters, seconds, kilograms, newtons, radians (and rad/s for angular rate).
 - **Thruster directions:** body-frame, forward/backward/left/right; rotate with vehicle orientation (not world-frame fixed).
 - **Timestep:** fixed simulation timestep, decoupled from the (slower) agent decision cadence. Exact values are config (see §9), but the separation itself is fixed.
