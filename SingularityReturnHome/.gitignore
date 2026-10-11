@@ -2,3 +2,6 @@
 # Python generated files
 __pycache__/
 *.py[cod]
+
+# Simulator run output
+runs/

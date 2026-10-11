@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import './App.css'
+import ScenarioRuns from './ScenarioRuns'
 
 const mission = {
   altitude: 400,
@@ -146,6 +147,8 @@ function App() {
           </div>
         </article>
       </section>
+
+      <ScenarioRuns />
 
       <footer>
         <span>MAXIMUM CONTROL, MINIMUM ABSTRACTION</span>

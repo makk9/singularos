@@ -1,0 +1,34 @@
+# Base for orbit-scale scenarios: the nominal inspection mission flown by a
+# craft with thrusters and propellant sized for orbit-scale recovery burns
+# (effective exhaust velocity 2500 m/s; about 830 m/s of delta-v above the
+# reserve with a full load). No faults; scenarios that extend this add them.
+extends = "nominal.toml"
+
+[scenario]
+name = "orbital_base"
+max_duration_s = 4000.0
+
+[initial_state]
+fuel_kg = 20.0
+
+[vehicle.thrusters.forward]
+max_thrust_n = 40.0
+fuel_rate_kg_s = 0.016
+
+[vehicle.thrusters.backward]
+max_thrust_n = 40.0
+fuel_rate_kg_s = 0.016
+
+[vehicle.thrusters.left]
+max_thrust_n = 40.0
+fuel_rate_kg_s = 0.016
+
+[vehicle.thrusters.right]
+max_thrust_n = 40.0
+fuel_rate_kg_s = 0.016
+
+[recovery]
+# Fault monitor threshold scaled to the larger thrusters: their 0.1 s response
+# delay alone gives up to ~0.1 m/s of residual over the window, while a dead
+# 40 N thruster gives ~1.7 m/s.
+monitor_threshold_m_s = 0.3

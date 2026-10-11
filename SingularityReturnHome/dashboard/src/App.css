@@ -207,3 +207,20 @@ footer {
 
 .simulation-controls button:hover { background: #269ac1; }
 .simulation-controls button:disabled { opacity: .5; cursor: wait; }
+
+.scenario-runs { margin-top: 22px; display: grid; gap: 22px; }
+.scenario-runs .metrics, .scenario-runs .details { margin-bottom: 0; }
+.scenario-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.scenario-controls label { color: #8da0b5; font-size: 12px; }
+.scenario-controls select {
+  font: inherit;
+  color: #e8f0f8;
+  background: #0b1523;
+  border: 1px solid #263548;
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 280px;
+}
+.replay-link { color: #63d9ff; }
+.track { width: 100%; height: auto; background: #0b1523; border-radius: 6px; }
+.track-label { fill: #8da0b5; font-size: 11px; }

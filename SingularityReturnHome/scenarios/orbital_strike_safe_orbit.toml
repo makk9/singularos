@@ -1,0 +1,21 @@
+# Orbit-scale fault, limited propellant: the same 150 m/s strike, but only
+# about 140 m/s of delta-v above the reserve. Braking (150 m/s x margin) does
+# not fit; the 92 m/s perigee raise does. Expected: triage as SAFE_ORBIT,
+# independent validation authorises the burn, and the craft holds in an orbit
+# with a safe perigee instead of reentering.
+extends = "orbital_base.toml"
+
+[scenario]
+name = "orbital_strike_safe_orbit"
+expected_outcome = "HOLD"
+post_outcome_observe_s = 600.0
+
+[initial_state]
+fuel_kg = 3.2
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -150.0]
+delta_omega_rad_s = 0.05

@@ -1,0 +1,20 @@
+# Orbit-scale fault, unrecoverable: a 300 m/s strike with the same limited
+# propellant. Neither braking nor a perigee raise fits, so the expected
+# outcome is ABORT with the time to reentry reported; the run continues
+# until the craft descends through 120 km.
+extends = "orbital_base.toml"
+
+[scenario]
+name = "orbital_strike_abort"
+expected_outcome = "ABORT"
+post_outcome_observe_s = 1800.0
+
+[initial_state]
+fuel_kg = 3.2
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -300.0]
+delta_omega_rad_s = 0.05

@@ -1,0 +1,22 @@
+# Build-order step 2 baseline: a particle impact during the inspection loop
+# knocks the craft toward the station and kills the left thruster. Expected:
+# detect, diagnose, return along the loop and dock with three thrusters.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_fault"
+expected_outcome = "DOCKED"
+
+# Impact on the far side of the north solar array, pushing toward the station.
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "left"
+effectiveness = 0.0

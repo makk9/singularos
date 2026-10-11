@@ -1,0 +1,17 @@
+# Orbit-scale fault, enough propellant: a debris strike during the inspection
+# loop removes 150 m/s along-track, putting the craft on an orbit with a
+# perigee below the surface (reentry in about 24 minutes). Expected: detect,
+# triage as BRAKE (null the 150 m/s, which restores the station's orbit),
+# diagnose, return from kilometres out via the far-range approach, and dock.
+extends = "orbital_base.toml"
+
+[scenario]
+name = "orbital_strike_return"
+expected_outcome = "DOCKED"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -150.0]
+delta_omega_rad_s = 0.05

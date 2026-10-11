@@ -10,7 +10,7 @@ MAX_DELTA_V_M_S = 150.0
 AVAILABLE_DELTA_V_M_S = 120.0
 MIN_PERIGEE_KM = 199.9  # Numerical tolerance for rounded output
 
-def validate(plan):
+def validate(plan, available_delta_v_m_s=AVAILABLE_DELTA_V_M_S):
     reasons = []
 
     if plan.get("status") != "PROPOSED":
@@ -24,7 +24,7 @@ def validate(plan):
         reasons.append("NONFINITE_VALUE")
     if delta_v < 0 or delta_v > MAX_DELTA_V_M_S:
         reasons.append("MANEUVER_LIMIT_EXCEEDED")
-    if delta_v > AVAILABLE_DELTA_V_M_S:
+    if delta_v > available_delta_v_m_s:
         reasons.append("INSUFFICIENT_FUEL")
     if perigee < MIN_PERIGEE_KM:
         reasons.append("UNSAFE_RECOVERY_ORBIT")
@@ -39,11 +39,11 @@ if __name__ == "__main__":
     print("PLAN:", plan)
     print("SAFETY:", validate(plan))
 
-def validate_independently(position, velocity, plan):
+def validate_independently(position, velocity, plan, available_delta_v_m_s=AVAILABLE_DELTA_V_M_S):
     from simulation.orbit import orbital_status
     from math import sqrt
 
-    initial = validate(plan)
+    initial = validate(plan, available_delta_v_m_s)
     if not initial["authorized"]:
         return initial
 

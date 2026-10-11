@@ -1,0 +1,21 @@
+# Step 2 infeasible case: the impact kills the backward thruster. The baseline
+# cannot control closing speed on the dock axis without it, so the correct
+# behaviour is the HOLD fallback at a safe point, not a docking attempt.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_fault_infeasible"
+expected_outcome = "HOLD"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "backward"
+effectiveness = 0.0
