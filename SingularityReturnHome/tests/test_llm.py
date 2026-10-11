@@ -106,7 +106,9 @@ def client_for(server, **kw):
 def test_config_from_env_defaults_to_local_ollama():
     c = LLMConfig.from_env({})
     assert (c.backend, c.base_url, c.model, c.think) == (
-        "ollama", "http://127.0.0.1:11434", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M", None)
+        "ollama", "http://127.0.0.1:11434", "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M", False)
+    assert LLMConfig.from_env({"SINGULAROS_LLM_THINK": "default"}).think is None
+    assert LLMConfig.from_env({"SINGULAROS_LLM_THINK": "true"}).think is True
     openai = LLMConfig.from_env({"SINGULAROS_LLM_BACKEND": "openai"})
     assert (openai.model, openai.base_url) == (None, "http://127.0.0.1:8080")
     c = LLMConfig.from_env({"SINGULAROS_LLM_URL": "http://10.0.2.2:11434", "SINGULAROS_LLM_MODEL": "m",
@@ -192,6 +194,8 @@ def test_schema_recheck_catches_what_a_server_might_not_enforce():
     ({"mode": "ABORT"}, "retreat"),
     ({"plan": {"action": "RAISE_PERIGEE", "parameters": {}}, "requested_checks": ["FUEL_BUDGET"]}, "ORBIT_SAFETY"),
     ({"plan": {"action": "BRAKE", "parameters": {}}, "requested_checks": []}, "FUEL_BUDGET"),
+    ({"mode": "RETURN", "plan": {"action": "RAISE_PERIGEE", "parameters": {}},
+      "requested_checks": ["FUEL_BUDGET", "ORBIT_SAFETY"]}, "mode must be HOLD"),
 ])
 def test_semantic_problems(overrides, fragment):
     assert any(fragment in p for p in semantic_problems(proposal(**overrides)))

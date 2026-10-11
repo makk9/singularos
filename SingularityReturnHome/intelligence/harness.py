@@ -132,6 +132,8 @@ def semantic_problems(candidate):
         problems.append(f"{action} proposal must request FUEL_BUDGET")
     if action == "RAISE_PERIGEE" and "ORBIT_SAFETY" not in checks:
         problems.append("RAISE_PERIGEE proposal must request ORBIT_SAFETY")
+    if action == "RAISE_PERIGEE" and mode != "HOLD":
+        problems.append("RAISE_PERIGEE ends in a safe-orbit HOLD; mode must be HOLD")
     if len(checks) != len(set(checks)):
         problems.append("requested_checks must be unique")
     if len(candidate.get("rationale", "")) < 20:

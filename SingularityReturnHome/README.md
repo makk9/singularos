@@ -85,7 +85,7 @@ Settings (environment):
 | `SINGULAROS_LLM_URL` | `http://127.0.0.1:11434` (`openai`: `http://127.0.0.1:8080`) | From inside a QEMU guest (user-mode networking): `http://10.0.2.2:11434` |
 | `SINGULAROS_LLM_MODEL` | `hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M` | Any name from `ollama list` |
 | `SINGULAROS_LLM_BACKEND` | `ollama` | `openai` for an OpenAI-compatible server, e.g. llama.cpp in `docker/` |
-| `SINGULAROS_LLM_THINK` | unset | `true`/`false`: Ollama `think` option for thinking models |
+| `SINGULAROS_LLM_THINK` | `false` | Ollama `think` option; `default` to not send it. With thinking on, Qwen3.5 9B did not return a schema-constrained reply within 300 s |
 | `SINGULAROS_LLM_TIMEOUT` | `180` | Seconds per request |
 
 Pipeline (`intelligence/`, harness from PR #3):
@@ -96,7 +96,7 @@ Pipeline (`intelligence/`, harness from PR #3):
 2. `harness.py` re-checks the reply against the schema in Python, then
    semantic rules (e.g. `DOCKED` must request `DOCK_ALIGNMENT` and
    `OBSERVATION_FRESHNESS`; `RAISE_PERIGEE` must request `FUEL_BUDGET` and
-   `ORBIT_SAFETY`), retrying with feedback up to twice.
+   `ORBIT_SAFETY` and mode `HOLD`), retrying with feedback up to twice.
 3. `review.py` runs the requested checks against the planner's numbers
    (delta-v budget, orbit safety, independent perigee-raise validation,
    thruster health, docking criteria) and records whether the proposal

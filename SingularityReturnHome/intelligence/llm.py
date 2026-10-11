@@ -20,8 +20,10 @@ hard-coded:
                           `ollama pull hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M`,
                           5.7 GB). Not sent to the openai backend unless set.
   SINGULAROS_LLM_BACKEND  ollama (default) or openai.
-  SINGULAROS_LLM_THINK    true/false: sent as Ollama's "think" option for
-                          models that support thinking. Unset: not sent.
+  SINGULAROS_LLM_THINK    Ollama "think" option: false (default), true, or
+                          "default" to not send it. With thinking on,
+                          Qwen3.5 9B did not return a schema-constrained
+                          reply within 300 s; with it off, about 8 s.
   SINGULAROS_LLM_TIMEOUT  request timeout in seconds (default 180).
 """
 
@@ -50,19 +52,19 @@ class LLMConfig:
     backend: str = "ollama"
     timeout_s: float = 180.0
     temperature: float = 0.2
-    think: bool | None = None
+    think: bool | None = False
 
     @classmethod
     def from_env(cls, env=None):
         env = os.environ if env is None else env
-        think = env.get("SINGULAROS_LLM_THINK")
+        think = env.get("SINGULAROS_LLM_THINK", "false").strip().lower()
         backend = env.get("SINGULAROS_LLM_BACKEND", "ollama")
         config = cls(
             base_url=env.get("SINGULAROS_LLM_URL", DEFAULT_URL if backend == "ollama" else DEFAULT_OPENAI_URL),
             model=env.get("SINGULAROS_LLM_MODEL") or (DEFAULT_MODEL if backend == "ollama" else None),
             backend=backend,
             timeout_s=float(env.get("SINGULAROS_LLM_TIMEOUT", "180")),
-            think=None if think is None else think.strip().lower() in ("1", "true", "yes"),
+            think=None if think == "default" else think in ("1", "true", "yes"),
         )
         if config.backend not in BACKENDS:
             raise ValueError(f"SINGULAROS_LLM_BACKEND must be one of {BACKENDS}")
