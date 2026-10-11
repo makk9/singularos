@@ -1,0 +1,20 @@
+# Step 2 variant: the impact leaves the forward thruster at 40% output.
+# Expected: detect, diagnose the reduced effectiveness, compensate and dock.
+extends = "nominal.toml"
+
+[scenario]
+name = "thruster_degraded"
+expected_outcome = "DOCKED"
+
+[[faults]]
+type = "impact"
+t_s = 160.0
+duration_s = 0.5
+delta_v_m_s = [0.0, -0.12]
+delta_omega_rad_s = 0.08
+
+[[faults]]
+type = "thruster"
+t_s = 160.0
+thruster = "forward"
+effectiveness = 0.4

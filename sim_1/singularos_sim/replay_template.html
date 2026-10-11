@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SingularOS sim replay</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --truth: #f5b942; --obs: #4fc3f7; --ok: #3fb950; --bad: #f85149;
+    --DEPART: #7e8cf0; --INSPECT: #b07ef0; --RETURN: #4fc3a1; --APPROACH: #f08a5d; --DOCKED: #3fb950;
+    --INVESTIGATE: #e3b341; --HOLD: #db6d28; --ABORT: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
+  .badge { white-space: nowrap; }
+  header .meta { color: var(--muted); white-space: nowrap; }
+  header .note-right { margin-left: auto; color: var(--muted); font-size: 11px; text-align: right; max-width: 260px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 12px; }
+  .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .badge.bad { background: rgba(248,81,73,.15); color: var(--bad); }
+  main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  #world-wrap { position: relative; min-width: 0; min-height: 0; }
+  #world { position: absolute; inset: 0; width: 100%; height: 100%; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; overflow-y: auto; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 6px; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+  .phase-now { font-size: 20px; font-weight: 700; }
+  .clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 2px 4px; }
+  th:first-child, td:first-child { text-align: left; color: var(--muted); font-weight: 400; }
+  th { font-weight: 600; font-size: 12px; }
+  th.truth { color: var(--truth); } th.obs { color: var(--obs); }
+  td.ok { color: var(--ok); } td.bad { color: var(--bad); }
+  .note { color: var(--muted); font-size: 12px; }
+  .thr { display: grid; grid-template-columns: 62px 1fr 42px 54px 54px; gap: 6px; align-items: center; margin: 3px 0; font-variant-numeric: tabular-nums; }
+  .thr.head { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .thr .h { text-align: right; } .thr .h.bad { color: var(--bad); } .thr .h.warn { color: #e3b341; }
+  #events { list-style: none; padding: 0; margin: 0; max-height: 210px; overflow-y: auto; font-size: 12px; }
+  #events li { display: grid; grid-template-columns: 46px 40px 1fr; gap: 6px; padding: 2px 0; border-bottom: 1px solid #21262d; }
+  #events li .tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+  #events li .tag.truth { color: var(--truth); } #events li .tag.controller { color: var(--obs); }
+  #events li.latest { background: rgba(227,179,65,.08); }
+  #plan li.skipped { color: var(--bad); }
+  .thr .bar { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
+  .thr .bar > div { height: 100%; background: var(--truth); width: 0; }
+  .thr span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  #inset { width: 100%; height: 220px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; display: block; }
+  #plan { list-style: none; padding: 0; margin: 0; }
+  #plan li { display: grid; grid-template-columns: 18px 1fr auto; gap: 6px; padding: 2px 0; }
+  #plan li .st { font-size: 12px; color: var(--muted); }
+  #plan li.done { color: var(--ok); } #plan li.current { color: var(--text); font-weight: 600; }
+  #plan li.pending { color: var(--muted); }
+  .legend { display: grid; grid-template-columns: 18px 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; }
+  .dot { width: 6px; height: 6px; border-radius: 3px; margin-left: 4px; }
+  footer { border-top: 1px solid var(--line); padding: 8px 16px 10px; display: grid; gap: 6px; }
+  .controls { display: flex; gap: 10px; align-items: center; }
+  button, select { background: #21262d; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  #scrub { flex: 1; accent-color: var(--obs); }
+  #timeline { position: relative; height: 16px; display: flex; border-radius: 4px; overflow: hidden; cursor: pointer; }
+  #timeline > div { height: 100%; font-size: 10px; line-height: 16px; padding-left: 4px; color: #0d1117; font-weight: 600; white-space: nowrap; overflow: hidden; }
+  #cursor { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SingularOS 2D sim replay</h1>
+  <span class="meta" id="meta"></span>
+  <span class="badge" id="outcome"></span>
+  <span class="meta" id="collision"></span>
+  <span class="note-right">2D local-proximity model, no orbital mechanics. Inspection is a pose and hold.</span>
+</header>
+<main>
+  <div id="world-wrap"><canvas id="world"></canvas></div>
+  <aside>
+    <h2>Phase</h2>
+    <div class="phase-now" id="phase"></div>
+    <div class="clock" id="clock"></div>
+
+    <h2>Inspection plan</h2>
+    <ol id="plan"></ol>
+
+    <h2>Event log</h2>
+    <ol id="events"></ol>
+    <div class="note">TRUTH events are hidden from the controller; CTRL events are what the controller detected and decided.</div>
+
+    <h2>State</h2>
+    <table>
+      <thead><tr><th></th><th class="truth">Truth</th><th class="obs">Controller sees</th></tr></thead>
+      <tbody id="state"></tbody>
+    </table>
+    <div class="note">Truth is hidden from the controller. "Controller sees" is the latest observation from each sensor.</div>
+
+    <h2>Docking check (controller)</h2>
+    <table><tbody id="dock"></tbody></table>
+
+    <h2>Thrusters (truth output)</h2>
+    <div class="thr head"><span></span><span>output</span><span></span><span class="h">truth</span><span class="h">ctrl est.</span></div>
+    <div id="thrusters"></div>
+
+    <h2>Dock close-up (&plusmn;1 m)</h2>
+    <canvas id="inset"></canvas>
+
+
+    <h2>Legend</h2>
+    <div class="legend">
+      <div class="sw" style="background:var(--truth)"></div><div>Truth path and vehicle body; the wedge is the nose (heading)</div>
+      <div class="sw" style="background:#ffffff"></div><div>Arrow: direction of travel (truth velocity). Thrusters on all four sides let the vehicle move in any direction, so this often differs from the nose direction.</div>
+      <div class="dot" style="background:var(--obs)"></div><div>Navigation observations; outline = observed pose</div>
+      <div class="sw" style="background:#8b949e"></div><div>Planned route (dashed) and inspection stops</div>
+      <div class="sw" style="background:rgba(255,255,255,.5)"></div><div>Camera view toward the component being inspected</div>
+      <div class="sw" style="background:#6e7681"></div><div>Station: hull, trusses</div>
+      <div class="sw" style="background:#2f6fb5"></div><div>Station: solar arrays</div>
+      <div class="sw" style="background:#c9d1d9"></div><div>Station: radiator</div>
+      <div class="sw" style="background:var(--bad)"></div><div>Particle impact; red mark on the vehicle = failed thruster (truth)</div>
+      <div class="sw" style="background:#e3b341"></div><div>Recovery path chosen by the controller; diamond = hold point</div>
+    </div>
+  </aside>
+</main>
+<footer>
+  <div class="controls">
+    <button id="play">Play</button>
+    <button id="restart" title="Home">Restart</button>
+    <label class="note">Speed
+      <select id="speed">
+        <option value="1">1&times;</option><option value="5">5&times;</option><option value="10">10&times;</option>
+        <option value="20" selected>20&times;</option><option value="50">50&times;</option>
+      </select>
+    </label>
+    <input type="range" id="scrub" min="0" step="0.001">
+    <span class="clock" id="tlabel"></span>
+  </div>
+  <div id="timeline"><div id="cursor"></div></div>
+  <div class="note">Space: play/pause. Left/Right: step one controller tick. Click the phase bar to jump. Add ?t=SECONDS to the URL to open at a given time.</div>
+</footer>
+
+<script id="data" type="application/json">__REPLAY_DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById("data").textContent);
+  const F = D.frames, P = D.frame_period_s, N = F.length;
+  const tEnd = F[N - 1].t;
+  const THR = ["forward", "backward", "left", "right"];
+  const css = getComputedStyle(document.documentElement);
+  const C = name => css.getPropertyValue("--" + name).trim();
+  const $ = id => document.getElementById(id);
+
+  let t = 0, playing = false, last = null;
+
+  // Inspection stops and when each one was finished (last frame on that leg).
+  const STOPS = D.mission.route.filter(r => r.kind === "inspect");
+  const firstInvestigate = F.findIndex(f => f.phase === "INVESTIGATE");
+  STOPS.forEach(stop => {
+    let lastIdx = -1;
+    F.forEach((f, k) => { if (f.leg === stop.name) lastIdx = k; });
+    const completed = D.summary.inspections_completed.includes(stop.name);
+    stop.doneAfter = completed ? lastIdx : Infinity;
+    stop.skippedAfter = !completed && firstInvestigate >= 0 ? firstInvestigate : Infinity;
+  });
+  const stopStatus = (stop, i) => i > stop.doneAfter ? "done" : i >= stop.skippedAfter ? "skipped"
+    : (F[i].leg === stop.name ? "current" : "pending");
+
+  // All events, flattened with the frame they appear in.
+  const EVENTS = F.flatMap((f, k) => f.events.map(e => ({ ...e, k })));
+  const impactEv = EVENTS.find(e => e.type === "impact");
+  const anomalyEv = EVENTS.find(e => e.type === "anomaly_detected");
+  const planEvs = EVENTS.filter(e => e.type === "plan");
+
+  // Header
+  const S = D.summary;
+  $("meta").textContent = `${S.scenario} \u00b7 seed ${S.seed} \u00b7 ${S.sim_time_s.toFixed(1)} s \u00b7 fuel ${S.fuel_used_kg.toFixed(3)} kg`;
+  const ok = S.outcome === "DOCKED" && S.truth_docking_check.pass;
+  $("outcome").textContent = S.outcome + (S.outcome === "DOCKED" ? (S.truth_docking_check.pass ? " (truth confirmed)" : " (truth check FAILED)") : "");
+  const pass = S.outcome === S.expected_outcome && !S.collision && (S.outcome !== "DOCKED" || S.truth_docking_check.pass);
+  $("outcome").textContent += ` \u00b7 expected ${S.expected_outcome}: ${pass ? "PASS" : "FAIL"}`;
+  $("outcome").className = "badge " + (pass ? "ok" : "bad");
+  $("collision").innerHTML = `${S.inspections_completed.length}/${STOPS.length} inspected \u00b7 ` +
+    (S.collision ? `<span style="color:var(--bad)">collision at ${S.collision.t.toFixed(1)} s (${S.collision.component})</span>`
+                 : `no collisions \u00b7 min clearance ${S.min_clearance_in_flight.clearance_m.toFixed(2)} m`);
+
+  // Phase timeline
+  const segs = [];
+  const stopNames = new Set(STOPS.map(s => s.name));
+  F.forEach(f => {
+    const key = f.phase === "INSPECT" ? (stopNames.has(f.leg) ? f.leg : "transit") : f.phase;
+    if (!segs.length || segs[segs.length - 1].key !== key) segs.push({ key, phase: f.phase, t0: f.t });
+  });
+  segs.forEach((s, i) => { s.t1 = i + 1 < segs.length ? segs[i + 1].t0 : tEnd; });
+  const tl = $("timeline");
+  segs.forEach((s, i) => {
+    const d = document.createElement("div");
+    d.dataset.seg = i;
+    d.style.flex = Math.max(s.t1 - s.t0, tEnd * 0.012);
+    d.style.background = C(s.phase) || "#888";
+    if (s.key === "transit") d.style.opacity = 0.55;
+    else if (s.phase === "INSPECT") d.style.boxShadow = "inset 1px 0 0 #0d1117";
+    d.textContent = s.key === "transit" ? "" : s.key;
+    d.title = `${s.phase === "INSPECT" ? "INSPECT: " + s.key : s.phase}: ${s.t0.toFixed(1)}-${s.t1.toFixed(1)} s`;
+    tl.appendChild(d);
+  });
+  tl.addEventListener("click", e => {
+    for (const el of tl.querySelectorAll("[data-seg]")) {
+      const b = el.getBoundingClientRect();
+      if (e.clientX >= b.left && e.clientX <= b.right) {
+        const s = segs[+el.dataset.seg];
+        t = s.t0 + (s.t1 - s.t0) * (e.clientX - b.left) / b.width;
+      }
+    }
+    render();
+  });
+
+  const scrub = $("scrub");
+  scrub.max = tEnd;
+  scrub.addEventListener("input", () => { t = +scrub.value; render(); });
+  $("play").onclick = () => togglePlay();
+  $("restart").onclick = () => { t = 0; render(); };
+  function togglePlay() {
+    if (!playing && t >= tEnd) t = 0;
+    playing = !playing; last = null;
+    $("play").textContent = playing ? "Pause" : "Play";
+    if (playing) requestAnimationFrame(tick);
+  }
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "SELECT") return;
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    else if (e.code === "ArrowRight") { t = Math.min(tEnd, (Math.floor(t / P + 1e-6) + 1) * P); render(); }
+    else if (e.code === "ArrowLeft") { t = Math.max(0, (Math.ceil(t / P - 1e-6) - 1) * P); render(); }
+    else if (e.code === "Home") { t = 0; render(); }
+  });
+  function tick(now) {
+    if (!playing) return;
+    if (last !== null) t += (now - last) / 1000 * +$("speed").value;
+    last = now;
+    if (t >= tEnd) { t = tEnd; playing = false; $("play").textContent = "Play"; }
+    render();
+    if (playing) requestAnimationFrame(tick);
+  }
+
+  // Helpers
+  const wrap = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  function poseAt(time) {
+    const x = time / P, i = Math.min(N - 1, Math.floor(x + 1e-6)), j = Math.min(N - 1, i + 1), a = Math.min(1, x - i);
+    const A = F[i].truth, B = F[j].truth;
+    return { i, x: A[0] + (B[0] - A[0]) * a, y: A[1] + (B[1] - A[1]) * a, h: A[4] + wrap(B[4] - A[4]) * a,
+             vx: A[2] + (B[2] - A[2]) * a, vy: A[3] + (B[3] - A[3]) * a };
+  }
+  function setupCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+  function view(w, h, minx, maxx, miny, maxy) {
+    const s = Math.min(w / (maxx - minx), h / (maxy - miny));
+    const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+    return { s, X: x => w / 2 + (x - cx) * s, Y: y => h / 2 - (y - cy) * s };
+  }
+  function grid(g, v, w, h, step, labels) {
+    g.lineWidth = 1;
+    const x0 = Math.floor((-v.X(0) / v.s) / step) * step, x1 = (w - v.X(0)) / v.s;
+    const y0 = Math.floor((v.Y(0) - h) / v.s / step) * step, y1 = v.Y(0) / v.s;
+    g.font = "10px system-ui, sans-serif"; g.fillStyle = "#484f58";
+    for (let x = x0; x <= x1; x += step) {
+      g.strokeStyle = Math.abs(x) < 1e-9 ? "#30363d" : "#1b2129";
+      g.beginPath(); g.moveTo(v.X(x), 0); g.lineTo(v.X(x), h); g.stroke();
+      if (labels) g.fillText(`${+x.toFixed(2)} m`, v.X(x) + 3, h - 4);
+    }
+    for (let y = y0; y <= y1; y += step) {
+      g.strokeStyle = Math.abs(y) < 1e-9 ? "#30363d" : "#1b2129";
+      g.beginPath(); g.moveTo(0, v.Y(y)); g.lineTo(w, v.Y(y)); g.stroke();
+      if (labels) g.fillText(`${+y.toFixed(2)} m`, 4, v.Y(y) - 3);
+    }
+  }
+  function ship(g, v, x, y, h, len, style, filled, thrust, health) {
+    const px = v.X(x), py = v.Y(y), L = Math.max(len * v.s, 28);
+    g.save(); g.translate(px, py); g.rotate(-h);
+    if (thrust) {
+      // Exhaust leaves opposite to each thruster's push (body x = nose, y = left):
+      // forward exits aft, backward forward, left exits on the right side, right on the left.
+      const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      thrust.forEach((f, k) => {
+        const frac = D.max_thrust_n[k] > 0 ? f / D.max_thrust_n[k] : 0;
+        if (frac <= 0.01) return;
+        const [dx, dy] = dirs[k], base = L * 0.45, plen = L * (0.3 + 0.9 * frac);
+        g.strokeStyle = `rgba(255,140,60,${0.35 + 0.6 * frac})`; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(dx * base, -dy * base); g.lineTo(dx * (base + plen), -dy * (base + plen)); g.stroke();
+      });
+    }
+    const b = L * 0.32;
+    g.lineWidth = 1.5; g.strokeStyle = style; g.fillStyle = style;
+    if (!filled) g.setLineDash([3, 2]);
+    g.beginPath(); g.rect(-b, -b, 2 * b, 2 * b);
+    filled ? g.fill() : g.stroke();
+    // Nose wedge on the body +x face.
+    g.beginPath(); g.moveTo(b, -b * 0.6); g.lineTo(L * 0.62, 0); g.lineTo(b, b * 0.6); g.closePath();
+    filled ? g.fill() : g.stroke();
+    if (filled) { g.fillStyle = "#0d1117"; g.beginPath(); g.arc(b * 0.35, 0, b * 0.3, 0, 2 * Math.PI); g.fill(); }
+    if (health) {
+      // Nozzle of each thruster sits opposite its push direction.
+      const noz = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      health.forEach((hv, k) => {
+        if (hv >= 0.999) return;
+        const cx = noz[k][0] * b * 1.05, cy = -noz[k][1] * b * 1.05, m = Math.max(4, b * 0.45);
+        g.setLineDash([]); g.lineWidth = 2.5; g.strokeStyle = hv < 0.2 ? C("bad") : "#e3b341";
+        g.beginPath(); g.moveTo(cx - m, cy - m); g.lineTo(cx + m, cy + m); g.moveTo(cx + m, cy - m); g.lineTo(cx - m, cy + m); g.stroke();
+      });
+    }
+    g.restore();
+  }
+  // Direction-of-travel arrow; length grows with speed. Hidden when nearly still.
+  function velocityArrow(g, v, x, y, vx, vy, maxSpeed, style) {
+    const sp = Math.hypot(vx, vy);
+    if (sp < 0.003) return;
+    const px = v.X(x), py = v.Y(y), ux = vx / sp, uy = -vy / sp;
+    const len = 22 + 60 * Math.min(1, sp / maxSpeed), head = 7;
+    const ex = px + ux * len, ey = py + uy * len;
+    g.save(); g.strokeStyle = style; g.fillStyle = style; g.lineWidth = 2; g.setLineDash([]);
+    g.beginPath(); g.moveTo(px + ux * 10, py + uy * 10); g.lineTo(ex - ux * head, ey - uy * head); g.stroke();
+    g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex - ux * head - uy * head * 0.6, ey - uy * head + ux * head * 0.6);
+    g.lineTo(ex - ux * head + uy * head * 0.6, ey - uy * head - ux * head * 0.6); g.closePath(); g.fill();
+    g.restore();
+  }
+  function marker(g, v, p, label, shape) {
+    const x = v.X(p[0]), y = v.Y(p[1]);
+    g.strokeStyle = "#8b949e"; g.fillStyle = "#8b949e"; g.lineWidth = 1.5;
+    g.beginPath();
+    if (shape === "diamond") { g.moveTo(x, y - 6); g.lineTo(x + 6, y); g.lineTo(x, y + 6); g.lineTo(x - 6, y); g.closePath(); }
+    else g.arc(x, y, 6, 0, 2 * Math.PI);
+    g.stroke();
+    g.font = "11px system-ui, sans-serif"; g.fillText(label, x + 9, y - 8);
+  }
+
+  const STYLE = {
+    hull: { fill: "#2d333b", stroke: "#6e7681", line: "#3d444d" },
+    truss: { fill: "#3d444d", stroke: "#6e7681", line: "#6e7681" },
+    solar_array: { fill: "#1d3557", stroke: "#2f6fb5", line: "#2f6fb5" },
+    radiator: { fill: "#4a5058", stroke: "#c9d1d9", line: "#8b949e" },
+    docking_port: { fill: "#2d333b", stroke: C("ok"), line: C("ok") },
+  };
+  function drawStation(g, v, i) {
+    for (const c of D.station) {
+      const st = STYLE[c.type] || STYLE.hull;
+      const [x0, y0] = c.min_m, [x1, y1] = c.max_m;
+      const X0 = v.X(x0), Y1 = v.Y(y1), W = (x1 - x0) * v.s, H = (y1 - y0) * v.s;
+      g.fillStyle = st.fill; g.fillRect(X0, Y1, W, H);
+      // Surface texture: panel seams, solar cells, radiator fins, truss bracing.
+      g.save(); g.beginPath(); g.rect(X0, Y1, W, H); g.clip();
+      g.strokeStyle = st.line; g.lineWidth = 1; g.beginPath();
+      if (c.type === "solar_array") {
+        for (let x = x0 + 1; x < x1; x += 1) { g.moveTo(v.X(x), Y1); g.lineTo(v.X(x), Y1 + H); }
+        for (let y = y0 + 1; y < y1; y += 1) { g.moveTo(X0, v.Y(y)); g.lineTo(X0 + W, v.Y(y)); }
+      } else if (c.type === "radiator") {
+        for (let y = y0 + 0.5; y < y1; y += 0.5) { g.moveTo(X0, v.Y(y)); g.lineTo(X0 + W, v.Y(y)); }
+      } else if (c.type === "truss") {
+        g.moveTo(X0, Y1); g.lineTo(X0 + W, Y1 + H); g.moveTo(X0 + W, Y1); g.lineTo(X0, Y1 + H);
+      } else if (c.type === "hull") {
+        for (let x = x0 + 2; x < x1; x += 2) { g.moveTo(v.X(x), Y1); g.lineTo(v.X(x), Y1 + H); }
+      }
+      g.stroke(); g.restore();
+
+      // Outline: white while being inspected, green once inspected.
+      const stops = STOPS.filter(s => s.target === c.name);
+      const status = stops.length ? (stops.some(s => stopStatus(s, i) === "current") ? "current"
+        : stops.every(s => stopStatus(s, i) === "done") ? "done" : "pending") : null;
+      g.strokeStyle = status === "current" ? "#ffffff" : status === "done" ? C("ok") : st.stroke;
+      g.lineWidth = status === "current" ? 2.5 : 1.5;
+      g.strokeRect(X0, Y1, W, H);
+
+      if (c.type !== "truss" && c.type !== "docking_port") {
+        g.fillStyle = "#c9d1d9"; g.font = "11px system-ui, sans-serif";
+        const tw = g.measureText(c.name).width;
+        if (H > 2 * W) {
+          g.save(); g.translate(X0 + W / 2 + 4, Y1 + H / 2 + tw / 2); g.rotate(-Math.PI / 2); g.fillText(c.name, 0, 0); g.restore();
+        } else {
+          g.fillText(c.name, X0 + W / 2 - tw / 2, Y1 + H / 2 + 4);
+        }
+      }
+    }
+  }
+
+  // World bounds: path, waypoints and station.
+  const M = D.mission;
+  let minx = -6, maxx = 2, miny = -4, maxy = 4;
+  for (const f of F) { minx = Math.min(minx, f.truth[0]); maxx = Math.max(maxx, f.truth[0]); miny = Math.min(miny, f.truth[1]); maxy = Math.max(maxy, f.truth[1]); }
+  const pts = [M.staging_point_m, ...M.route.map(r => r.point_m), ...D.station.flatMap(c => [c.min_m, c.max_m])];
+  for (const p of pts) { minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]); }
+  const VMAX = Math.max(...F.map(f => Math.hypot(f.truth[2], f.truth[3])), 1e-6);
+  const pad = 0.08 * Math.max(maxx - minx, maxy - miny);
+  minx -= pad; maxx += pad; miny -= pad; maxy += pad;
+
+  function drawWorld(pose) {
+    const { g, w, h } = setupCanvas($("world"));
+    const v = view(w, h, minx, maxx, miny, maxy);
+    grid(g, v, w, h, 5, true);
+
+    const f = F[pose.i];
+    const cur = STOPS.find(st => f.leg === st.name);
+    drawStation(g, v, pose.i);
+
+    // Planned route: staging -> route -> staging -> dock.
+    g.setLineDash([5, 5]); g.strokeStyle = "#484f58"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(v.X(0), v.Y(0)); g.lineTo(v.X(M.staging_point_m[0]), v.Y(M.staging_point_m[1]));
+    for (const r of M.route) g.lineTo(v.X(r.point_m[0]), v.Y(r.point_m[1]));
+    g.lineTo(v.X(M.staging_point_m[0]), v.Y(M.staging_point_m[1])); g.stroke();
+    g.setLineDash([]);
+    marker(g, v, M.staging_point_m, "Staging", "diamond");
+    STOPS.forEach((st, k) => {
+      const status = stopStatus(st, pose.i);
+      const col = status === "done" ? C("ok") : status === "current" ? "#ffffff" : "#8b949e";
+      const x = v.X(st.point_m[0]), y = v.Y(st.point_m[1]);
+      g.setLineDash([2, 4]); g.strokeStyle = "rgba(139,148,158,.5)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(v.X(st.look_at_m[0]), v.Y(st.look_at_m[1])); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(x, y, 9, 0, 2 * Math.PI); g.stroke();
+      g.font = "bold 10px system-ui, sans-serif"; g.textAlign = "center"; g.fillText(String(k + 1), x, y + 3.5); g.textAlign = "left";
+      g.font = "11px system-ui, sans-serif";
+      const lx = x + (st.point_m[0] > -10 ? 13 : -13 - g.measureText(st.name).width);
+      g.fillText(st.name, lx, y - 10);
+    });
+
+    // Camera view while at the current inspection stop.
+    if (cur && Math.hypot(pose.x - cur.point_m[0], pose.y - cur.point_m[1]) < 1.5) {
+      const range = Math.hypot(cur.look_at_m[0] - pose.x, cur.look_at_m[1] - pose.y) + 2, half = 0.35;
+      g.fillStyle = "rgba(255,255,255,0.08)"; g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(v.X(pose.x), v.Y(pose.y));
+      for (let a = -half; a <= half + 1e-9; a += half / 8) g.lineTo(v.X(pose.x + range * Math.cos(pose.h + a)), v.Y(pose.y + range * Math.sin(pose.h + a)));
+      g.closePath(); g.fill(); g.stroke();
+    }
+
+    g.font = "11px system-ui, sans-serif";
+    g.strokeStyle = C("ok"); g.lineWidth = 2;
+    g.beginPath(); g.arc(v.X(0), v.Y(0), Math.max(D.docking.max_distance_m * v.s, 4), 0, 2 * Math.PI); g.stroke();
+    g.fillStyle = C("ok"); g.fillText("Dock", v.X(0) + 8, v.Y(0) + 16);
+
+
+    // Full truth path faint, travelled part solid.
+    g.lineWidth = 1; g.strokeStyle = "rgba(245,185,66,0.12)";
+    g.beginPath(); F.forEach((f, k) => k ? g.lineTo(v.X(f.truth[0]), v.Y(f.truth[1])) : g.moveTo(v.X(f.truth[0]), v.Y(f.truth[1]))); g.stroke();
+    g.lineWidth = 2; g.strokeStyle = C("truth");
+    g.beginPath();
+    for (let k = 0; k <= pose.i; k++) { const p = F[k].truth; k ? g.lineTo(v.X(p[0]), v.Y(p[1])) : g.moveTo(v.X(p[0]), v.Y(p[1])); }
+    g.lineTo(v.X(pose.x), v.Y(pose.y)); g.stroke();
+
+    // Navigation observations.
+    g.fillStyle = "rgba(79,195,247,0.45)";
+    for (let k = 0; k <= pose.i; k++) { const n = F[k].nav; if (n) g.fillRect(v.X(n[0]) - 1, v.Y(n[1]) - 1, 2, 2); }
+
+    // Recovery path from the latest plan made so far.
+    const plan = planEvs.filter(e => e.k <= pose.i).pop();
+    if (plan) {
+      const pts = plan.decision === "RETURN" ? [...plan.return_points_m, M.staging_point_m, [0, 0]]
+        : plan.hold_point_m ? [plan.hold_point_m] : [];
+      const start = F[plan.k].truth;
+      g.setLineDash([6, 4]); g.strokeStyle = "#e3b341"; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(v.X(start[0]), v.Y(start[1]));
+      for (const p of pts) g.lineTo(v.X(p[0]), v.Y(p[1]));
+      g.stroke(); g.setLineDash([]);
+      if (plan.hold_point_m) {
+        const hx = v.X(plan.hold_point_m[0]), hy = v.Y(plan.hold_point_m[1]);
+        g.fillStyle = "#e3b341"; g.beginPath(); g.moveTo(hx, hy - 8); g.lineTo(hx + 8, hy); g.lineTo(hx, hy + 8); g.lineTo(hx - 8, hy); g.closePath(); g.fill();
+        g.font = "bold 11px system-ui, sans-serif"; g.fillText("HOLD point", hx - 78, hy + 4);
+      }
+    }
+    if (impactEv && pose.i >= impactEv.k) {
+      const ix = v.X(impactEv.x_m), iy = v.Y(impactEv.y_m), age = t - impactEv.t;
+      const flash = age < 4 ? 1 - age / 4 : 0;
+      g.strokeStyle = C("bad"); g.lineWidth = 2;
+      g.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4, r1 = 5, r2 = 11 + 16 * flash;
+        g.moveTo(ix + r1 * Math.cos(a), iy + r1 * Math.sin(a)); g.lineTo(ix + r2 * Math.cos(a), iy + r2 * Math.sin(a));
+      }
+      g.stroke();
+      if (flash > 0) { g.fillStyle = `rgba(248,81,73,${0.35 * flash})`; g.beginPath(); g.arc(ix, iy, 30 * flash + 6, 0, 2 * Math.PI); g.fill(); }
+      g.fillStyle = C("bad"); g.font = "bold 11px system-ui, sans-serif";
+      g.fillText(`Particle impact t=${impactEv.t.toFixed(0)} s`, ix + 14, iy - 12);
+    }
+    if (anomalyEv && pose.i >= anomalyEv.k) {
+      const p = F[anomalyEv.k].nav || F[anomalyEv.k].truth;
+      g.fillStyle = "#e3b341"; g.font = "bold 11px system-ui, sans-serif";
+      g.fillText(`! anomaly detected t=${anomalyEv.t.toFixed(1)} s`, v.X(p[0]) + 14, v.Y(p[1]) + 34);
+    }
+
+    if (f.nav && f.att) ship(g, v, f.nav[0], f.nav[1], f.att[0], 1.2, C("obs"), false, null);
+    ship(g, v, pose.x, pose.y, pose.h, 1.2, C("truth"), true, f.thrust, f.health);
+    velocityArrow(g, v, pose.x, pose.y, pose.vx, pose.vy, VMAX, "#ffffff");
+  }
+
+  function drawInset(pose) {
+    const { g, w, h } = setupCanvas($("inset"));
+    const v = view(w, h, -1, 1, -1, 1);
+    grid(g, v, w, h, 0.25, false);
+    g.font = "10px system-ui, sans-serif"; g.fillStyle = "#484f58"; g.fillText("grid 0.25 m", 6, h - 6);
+    g.strokeStyle = C("ok"); g.lineWidth = 1.5;
+    g.beginPath(); g.arc(v.X(0), v.Y(0), D.docking.max_distance_m * v.s, 0, 2 * Math.PI); g.stroke();
+    g.fillStyle = C("ok"); g.fillText(`docking radius ${D.docking.max_distance_m} m`, v.X(0) - 50, v.Y(0) - D.docking.max_distance_m * v.s - 6);
+    // Required docked heading.
+    const dh = M.dock_heading_rad;
+    g.setLineDash([3, 3]); g.strokeStyle = "#484f58";
+    g.beginPath(); g.moveTo(v.X(0), v.Y(0)); g.lineTo(v.X(-Math.cos(dh) * 1.5), v.Y(-Math.sin(dh) * 1.5)); g.stroke(); g.setLineDash([]);
+
+    g.lineWidth = 1.5; g.strokeStyle = C("truth");
+    g.beginPath();
+    let started = false;
+    for (let k = Math.max(0, pose.i - 600); k <= pose.i; k++) {
+      const p = F[k].truth;
+      if (Math.abs(p[0]) > 1.5 || Math.abs(p[1]) > 1.5) { started = false; continue; }
+      started ? g.lineTo(v.X(p[0]), v.Y(p[1])) : g.moveTo(v.X(p[0]), v.Y(p[1])); started = true;
+    }
+    g.stroke();
+    g.fillStyle = "rgba(79,195,247,0.6)";
+    for (let k = Math.max(0, pose.i - 600); k <= pose.i; k++) { const n = F[k].nav; if (n && Math.abs(n[0]) < 1.5 && Math.abs(n[1]) < 1.5) g.fillRect(v.X(n[0]) - 1.5, v.Y(n[1]) - 1.5, 3, 3); }
+    const f = F[pose.i];
+    if (f.nav && f.att) ship(g, v, f.nav[0], f.nav[1], f.att[0], 0.35, C("obs"), false, null);
+    ship(g, v, pose.x, pose.y, pose.h, 0.35, C("truth"), true, null);
+  }
+
+  function describe(e) {
+    const pct = x => `${(100 * x).toFixed(0)}%`;
+    switch (e.type) {
+      case "impact": return `Particle impact: delta-v (${e.delta_v_m_s.map(x => x.toFixed(2)).join(", ")}) m/s, spin ${e.delta_omega_rad_s.toFixed(2)} rad/s`;
+      case "thruster_fault": return `${e.thruster} thruster output now ${pct(e.effectiveness)}`;
+      case "anomaly_detected": return `Anomaly: motion differs from commands by ${e.residual_m_s.toFixed(3)} m/s`;
+      case "investigate_start": return `INVESTIGATE: braking, then testing thrusters`;
+      case "diagnostic": return `${e.thruster}: measured ${pct(Math.max(0, e.measured_ratio))} of expected (${e.method}) &rarr; ${e.estimate === 0 ? "FAILED" : pct(e.estimate)}`;
+      case "plan": return `Plan: <b>${e.decision}</b>. ${e.reasons.join("; ")}`;
+      case "dock_retry": return `Off dock axis by ${Math.abs(e.lateral_offset_m).toFixed(2)} m: backing out, retry ${e.retry}`;
+      case "dock_retry_limit": return `Docking retries exhausted: HOLD`;
+      case "hold_established": return `Holding at safe point`;
+      case "abort": return `ABORT: ${e.reason}`;
+      default: return e.type;
+    }
+  }
+
+  const fmt = (x, d) => x === null || x === undefined ? "&ndash;" : x.toFixed(d);
+  const deg = r => r === null || r === undefined ? null : r * 180 / Math.PI;
+  function drawPanel(pose) {
+    const f = F[pose.i], T = f.truth, n = f.nav, a = f.att;
+    const curStop = STOPS.find(st => f.leg === st.name);
+    $("phase").textContent = f.phase + (curStop ? ` \u00b7 ${curStop.name}` : f.phase === "INSPECT" ? " \u00b7 in transit" : "");
+    $("plan").innerHTML = STOPS.map((st, k) => {
+      const status = stopStatus(st, pose.i);
+      const at = status === "current" && Math.hypot(T[0] - st.point_m[0], T[1] - st.point_m[1]) < 1.5;
+      const label = status === "done" ? "inspected" : status === "skipped" ? "skipped (recovery)"
+        : status === "current" ? (at ? "inspecting" : "en route") : "pending";
+      return `<li class="${status}"><span>${status === "done" ? "&#10003;" : k + 1}</span><span>${st.name}</span><span class="st">${label}</span></li>`;
+    }).join("");
+    $("phase").style.color = C(f.phase);
+    $("clock").textContent = `t = ${t.toFixed(1)} s` + (n ? `  |  nav age ${n[4].toFixed(2)} s` : "");
+    const rows = [
+      ["x (m)", T[0], n && n[0], 3], ["y (m)", T[1], n && n[1], 3],
+      ["speed (m/s)", Math.hypot(T[2], T[3]), n && Math.hypot(n[2], n[3]), 3],
+      ["heading (deg)", deg(T[4]), a && deg(a[0]), 1],
+      ["travel dir (deg)", Math.hypot(T[2], T[3]) > 0.003 ? deg(Math.atan2(T[3], T[2])) : null,
+        n && Math.hypot(n[2], n[3]) > 0.003 ? deg(Math.atan2(n[3], n[2])) : null, 1], ["rate (deg/s)", deg(T[5]), a && deg(a[1]), 2],
+      ["fuel (kg)", T[6], f.fuel, 3],
+      ["station clearance (m)", f.clear, null, 2],
+    ];
+    $("state").innerHTML = rows.map(([k, tv, ov, d]) => `<tr><td>${k}</td><td>${fmt(tv, d)}</td><td>${fmt(ov, d)}</td></tr>`).join("");
+    const tested = new Set(EVENTS.filter(e => e.type === "diagnostic" && e.k <= pose.i).map(e => e.thruster));
+    const cls = hv => hv < 0.2 ? "bad" : hv < 0.999 ? "warn" : "";
+    $("thrusters").innerHTML = THR.map((name, k) => {
+      const frac = D.max_thrust_n[k] > 0 ? f.thrust[k] / D.max_thrust_n[k] : 0;
+      const est = tested.has(name) ? `${(100 * f.est[k]).toFixed(0)}%` : "assumed";
+      return `<div class="thr"><span class="note">${name}</span><div class="bar"><div style="width:${(100 * frac).toFixed(0)}%"></div></div>` +
+        `<span>${f.thrust[k].toFixed(2)} N</span><span class="h ${cls(f.health[k])}">${(100 * f.health[k]).toFixed(0)}%</span>` +
+        `<span class="h ${tested.has(name) ? cls(f.est[k]) : ""}">${est}</span></div>`;
+    }).join("");
+
+    const shown = EVENTS.filter(e => e.k <= pose.i);
+    $("events").innerHTML = shown.length ? shown.slice().reverse().map((e, j) =>
+      `<li class="${j === 0 ? "latest" : ""}"><span class="clock">${e.t.toFixed(1)} s</span><span class="tag ${e.source}">${e.source === "truth" ? "TRUTH" : "CTRL"}</span><span>${describe(e)}</span></li>`
+    ).join("") : `<li><span></span><span></span><span class="note">No events yet.</span></li>`;
+
+    const dk = f.dock, L = D.docking;
+    if (!dk) { $("dock").innerHTML = `<tr><td colspan="3">Evaluated only during APPROACH.</td></tr>`; return; }
+    const chk = (k, val, lim, d, unit) => {
+      const good = val !== undefined && val <= lim + 1e-12;
+      return `<tr><td>${k}</td><td class="${good ? "ok" : "bad"}">${val === undefined ? "&ndash;" : val.toFixed(d)}</td><td class="note">&le; ${lim} ${unit}</td></tr>`;
+    };
+    $("dock").innerHTML =
+      chk("distance", dk.distance_m, L.max_distance_m, 3, "m") +
+      chk("rel. speed", dk.relative_speed_m_s, L.max_relative_speed_m_s, 3, "m/s") +
+      chk("alignment", dk.alignment_error_rad, L.max_alignment_error_rad, 3, "rad") +
+      chk("position &sigma;", dk.position_uncertainty_m, L.max_position_uncertainty_m, 3, "m") +
+      chk("velocity &sigma;", dk.velocity_uncertainty_m_s, L.max_velocity_uncertainty_m_s, 3, "m/s") +
+      `<tr><td>fresh obs</td><td class="${dk.fresh ? "ok" : "bad"}">${dk.fresh ? "yes" : "no"}</td><td class="note">&le; ${L.max_observation_age_s} s old</td></tr>` +
+      `<tr><td>held</td><td class="${dk.pass ? "ok" : (dk.criteria_met ? "" : "bad")}">${(dk.criteria_held_s || 0).toFixed(1)} s</td><td class="note">&ge; ${L.confirm_duration_s} s</td></tr>`;
+  }
+
+  function render() {
+    t = Math.max(0, Math.min(tEnd, t));
+    const pose = poseAt(t);
+    drawWorld(pose); drawInset(pose); drawPanel(pose);
+    scrub.value = t;
+    $("tlabel").textContent = `${t.toFixed(1)} / ${tEnd.toFixed(1)} s`;
+    // Cursor over the phase bar, mapped through the segment layout.
+    for (const el of tl.querySelectorAll("[data-seg]")) {
+      const s = segs[+el.dataset.seg];
+      if (t >= s.t0 && t <= s.t1) {
+        const tb = tl.getBoundingClientRect(), b = el.getBoundingClientRect();
+        $("cursor").style.left = (b.left - tb.left + b.width * (s.t1 > s.t0 ? (t - s.t0) / (s.t1 - s.t0) : 0) - 1) + "px";
+        break;
+      }
+    }
+  }
+  window.addEventListener("resize", render);
+  const qt = parseFloat(new URLSearchParams(location.search).get("t"));
+  if (Number.isFinite(qt)) t = qt;
+  render();
+})();
+</script>
+</body>
+</html>

@@ -75,3 +75,6 @@ docker/models/
 docker/shared/
 *.qcow2
 *.iso
+
+# Simulator run output
+sim_1/runs/
