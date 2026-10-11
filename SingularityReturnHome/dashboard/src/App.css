@@ -1,0 +1,209 @@
+.dashboard {
+  max-width: 1500px;
+  margin: auto;
+  padding: 30px;
+}
+
+.header, .alert, .metrics, .details, .event, footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.header { align-items: center; margin-bottom: 30px; }
+
+.eyebrow {
+  color: #63d9ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+h1 { font-size: clamp(24px, 3vw, 38px); margin: 8px 0; letter-spacing: 2px; }
+h2 { font-size: 16px; letter-spacing: 1px; }
+.subtitle { color: #8193a8; margin: 0; }
+
+.status {
+  color: #49e6a1;
+  border: 1px solid #235b48;
+  padding: 12px 18px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.alert {
+  align-items: center;
+  background: linear-gradient(100deg, #36131d, #16111b);
+  border: 1px solid #9c344c;
+  border-left: 5px solid #ff526e;
+  padding: 20px 26px;
+  border-radius: 8px;
+  margin-bottom: 22px;
+}
+
+.alert h2 { color: #ff7188; margin: 8px 0; }
+.alert p:last-child { color: #c7a6ad; }
+
+.countdown { text-align: right; white-space: nowrap; }
+.countdown span, .panel > span {
+  display: block;
+  color: #8da0b5;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+}
+
+.countdown strong {
+  display: block;
+  font-size: 42px;
+  color: #ff7188;
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics { margin-bottom: 22px; }
+.metrics .panel { flex: 1; }
+
+.panel {
+  background: #101a28;
+  border: 1px solid #263548;
+  border-radius: 8px;
+  padding: 22px;
+  min-width: 0;
+}
+
+.panel strong { display: block; margin-top: 15px; font-size: 28px; }
+.panel small { font-size: 14px; color: #91a3b5; }
+.danger { color: #ff7188; }
+.success { color: #49e6a1; }
+
+.details { align-items: stretch; }
+.trajectory { flex: 1.2; }
+.decisions { flex: 1; }
+
+.panel h2 {
+  color: #b5c8da;
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+
+.orbit-graphic {
+  position: relative;
+  height: 330px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: radial-gradient(circle, #172e45 0%, #0b1523 65%);
+  border-radius: 6px;
+}
+
+.earth {
+  width: 155px;
+  height: 155px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #2c9bc6, #164977 55%, #09263d);
+  box-shadow: 0 0 35px #17568166;
+  display: grid;
+  place-items: center;
+  color: #c1e7ff;
+  font-size: 12px;
+  letter-spacing: 3px;
+  z-index: 2;
+}
+
+.orbit {
+  position: absolute;
+  border-radius: 50%;
+  transform: rotate(-24deg);
+}
+
+.orbit-safe {
+  width: 310px;
+  height: 240px;
+  border: 2px solid #49e6a1;
+  box-shadow: 0 0 12px #49e6a133;
+}
+
+.orbit-unsafe {
+  width: 255px;
+  height: 175px;
+  border: 2px dashed #ff526e;
+}
+
+.spacecraft {
+  position: absolute;
+  left: calc(50% + 145px);
+  top: 29%;
+  color: #ffffff;
+  font-size: 23px;
+  z-index: 3;
+}
+
+.legend { display: flex; gap: 20px; margin-top: 17px; flex-wrap: wrap; }
+.legend span { color: #9bafc2; font-size: 12px; }
+.line { display: inline-block; width: 18px; border-top: 2px solid; margin-right: 6px; }
+.green { color: #49e6a1; }
+.red { color: #ff526e; }
+
+.event {
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid #263548;
+  font-size: 12px;
+}
+
+.event span { color: #63d9ff; }
+.event p { flex: 1; margin: 0; color: #b7c7d8; }
+.event b { color: #49e6a1; font-size: 11px; text-align: right; }
+
+.notice {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #2b6177;
+  background: #102632;
+  color: #63d9ff;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.notice p { color: #9eb9c9; letter-spacing: 0; margin-bottom: 0; }
+
+footer {
+  margin-top: 26px;
+  color: #61768a;
+  font-size: 10px;
+  letter-spacing: 1px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 850px) {
+  .dashboard { padding: 15px; }
+  .header, .alert, .details { flex-direction: column; }
+  .metrics { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .countdown { text-align: left; }
+}
+
+@media (max-width: 450px) {
+  .metrics { grid-template-columns: 1fr; }
+  .panel { padding: 16px; }
+}
+
+.simulation-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.simulation-controls button {
+  background: #1d83a5;
+  border: 1px solid #63d9ff;
+  color: white;
+  padding: 13px 24px;
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.simulation-controls button:hover { background: #269ac1; }
+.simulation-controls button:disabled { opacity: .5; cursor: wait; }
