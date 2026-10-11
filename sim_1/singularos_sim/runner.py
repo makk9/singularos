@@ -126,6 +126,7 @@ def run_scenario(config, out_dir=None):
                     "command": command.to_dict(),
                     "docking_check": controller.last_docking_check,
                     "health_estimate": dict(controller.health),
+                    "health_verified": dict(controller.health_verified),
                     "monitor_residual_m_s": controller.last_residual,
                 }
                 events = controller.take_events()
