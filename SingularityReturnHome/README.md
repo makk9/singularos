@@ -41,7 +41,10 @@ The CLI prints the outcome and writes `runs/<scenario>-seed<seed>/` with
 `config.json`, `log.jsonl` (one line per step, truth and observations
 separate), `summary.json` and `replay.html` (self-contained, opens in a
 browser). `--seed N` overrides the scenario seed; `--out DIR` sets the
-output directory.
+output directory; `--all` runs every scenario, prints a result table and
+links the replays through a scenario picker. The replay shows truth and the
+controller's belief side by side: system health, thruster output vs.
+command, and station-frame (LVLH) navigation.
 
 Dashboard:
 

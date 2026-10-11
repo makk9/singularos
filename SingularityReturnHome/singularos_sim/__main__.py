@@ -1,11 +1,48 @@
-"""CLI: python -m singularos_sim [scenario.toml] [--seed N] [--out DIR]"""
+"""CLI: python -m singularos_sim [scenario.toml] [--seed N] [--out DIR]
+        python -m singularos_sim --all [--seed N]"""
 
 import argparse
 import sys
+from pathlib import Path
 
 from .config import default_scenario_path, load_config, with_seed
-from .replay import build_replay
+from .replay import build_replay, describe_faults
 from .runner import run_scenario
+
+
+def run_all(seed):
+    """Run every scenario in the scenarios directory with one seed and link the
+    replays with a scenario picker. Returns the process exit code."""
+    scenario_dir = default_scenario_path().parent
+    runs = []
+    for path in sorted(scenario_dir.glob("*.toml")):
+        try:
+            config = with_seed(load_config(path), seed)
+        except (KeyError, ValueError) as exc:
+            print(f"skipped {path.name}: not a valid scenario ({exc!r})")
+            continue
+        runs.append(run_scenario(config))
+    # Nominal first, then the rest by name.
+    runs.sort(key=lambda s: (s["scenario"] != "nominal", s["scenario"]))
+    entries = []
+    for s in runs:
+        ok = s["outcome"] == s["expected_outcome"] and s["collision"] is None and (
+            s["outcome"] != "DOCKED" or s["truth_docking_check"]["pass"])
+        s["ok"] = ok
+        entries.append({
+            "name": s["scenario"],
+            "href": f"../{Path(s['out_dir']).name}/replay.html",
+            "label": f"{s['scenario']} \u2014 {describe_faults(s['faults_injected'])} \u2014 {s['outcome']}"
+                     + ("" if ok else " (FAIL)"),
+        })
+    print(f"{'scenario':<28} {'faults':<26} {'outcome':<11} {'expected':<11} result")
+    for s in runs:
+        build_replay(s["out_dir"], entries)
+        print(f"{s['scenario']:<28} {describe_faults(s['faults_injected']):<26} {s['outcome']:<11} "
+              f"{s['expected_outcome']:<11} {'PASS' if s['ok'] else 'FAIL'}")
+    if runs:
+        print(f"replay (pick any scenario from the header): {Path(runs[0]['out_dir']) / 'replay.html'}")
+    return 0 if runs and all(s["ok"] for s in runs) else 1
 
 
 def main(argv=None):
@@ -13,7 +50,12 @@ def main(argv=None):
     parser.add_argument("scenario", nargs="?", default=str(default_scenario_path()), help="scenario TOML file")
     parser.add_argument("--seed", type=int, default=None, help="override the scenario seed")
     parser.add_argument("--out", default=None, help="output directory (default: runs/<name>-seed<seed>)")
+    parser.add_argument("--all", action="store_true",
+                        help="run every scenario in scenarios/ and link the replays with a scenario picker")
     args = parser.parse_args(argv)
+
+    if args.all:
+        return run_all(args.seed)
 
     config = with_seed(load_config(args.scenario), args.seed)
     s = run_scenario(config, args.out)

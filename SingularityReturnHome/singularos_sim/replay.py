@@ -9,6 +9,7 @@ Usage: python -m singularos_sim.replay <run_dir>
 """
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -24,12 +25,14 @@ def _r(v, nd=4):
 def build_frames(log_path):
     frames = []
     latest = {}
+    last_seen = {}  # latest observation per source, available or not
     pending_events = []
     with open(log_path) as f:
         for line in f:
             rec = json.loads(line)
             pending_events += [{**e, "source": "truth"} for e in rec["truth"].get("events", [])]
             for obs in rec["observations"]:
+                last_seen[obs["source"]] = obs
                 if obs["available"]:
                     latest[obs["source"]] = obs
             ctrl = rec.get("controller")
@@ -55,6 +58,15 @@ def build_frames(log_path):
                 "fuel": None if fuel is None else _r(fuel["value"]["fuel_kg"]),
                 "dock": None if dock is None else {k: (_r(v) if isinstance(v, float) else v) for k, v in dock.items()},
                 "health": [tr["thruster_health"][n] for n in THRUSTER_NAMES],
+                "ver": [ctrl["health_verified"][n] for n in THRUSTER_NAMES],
+                "cmd": [_r(ctrl["command"]["throttle"][n], 3) for n in THRUSTER_NAMES],
+                "res": _r(ctrl["monitor_residual_m_s"], 4),
+                # Per sensor: [seconds since last reading, available, stated 1-sigma].
+                "sens": {
+                    src: [_r(rec["t"] - o["timestamp"], 2), o["available"],
+                          None if not o["uncertainty"] else _r(next(iter(o["uncertainty"].values())), 4)]
+                    for src, o in last_seen.items()
+                },
                 "est": [_r(ctrl["health_estimate"][n], 3) for n in THRUSTER_NAMES],
                 "events": pending_events,
             })
@@ -62,7 +74,23 @@ def build_frames(log_path):
     return frames
 
 
-def build_replay(run_dir):
+def describe_faults(faults):
+    """Short label for a scenario's faults, e.g. 'left lost' or 'forward at 40%'."""
+    lost = [f["thruster"] for f in faults if f["type"] == "thruster" and f["effectiveness"] == 0]
+    weak = [f"{f['thruster']} at {round(100 * f['effectiveness'])}%" for f in faults
+            if f["type"] == "thruster" and f["effectiveness"] > 0]
+    # Orbit-scale strikes; the small knocks that accompany thruster faults
+    # are left out.
+    strikes = [f"{math.hypot(*f.get('delta_v_m_s', (0.0, 0.0))):.0f} m/s strike" for f in faults
+               if f["type"] == "impact" and math.hypot(*f.get("delta_v_m_s", (0.0, 0.0))) >= 1.0]
+    parts = strikes + ([f"{'+'.join(lost)} lost"] if lost else []) + weak
+    return ", ".join(parts) or "no faults"
+
+
+def build_replay(run_dir, scenarios=None):
+    """Write replay.html for a run. scenarios, if given, is a list of
+    {"name", "href", "label"} entries for the scenario picker in the header;
+    href is relative to this run directory."""
     run_dir = Path(run_dir)
     config = json.loads((run_dir / "config.json").read_text())
     summary = json.loads((run_dir / "summary.json").read_text())
@@ -74,8 +102,15 @@ def build_replay(run_dir):
         "orbit_period_s": config["orbit"]["period_s"],
         "docking": config["docking"],
         "max_thrust_n": [config["vehicle"]["thrusters"][n]["max_thrust_n"] for n in THRUSTER_NAMES],
+        "monitor_threshold_m_s": config["recovery"]["monitor_threshold_m_s"],
+        "usable_effectiveness": config["recovery"]["usable_effectiveness"],
+        "sensor_period_s": {
+            {"attitude": "attitude_sensor", "navigation": "navigation", "fuel": "fuel_monitor"}[k]: v["period_s"]
+            for k, v in config["sensors"].items()
+        },
         "initial_fuel_kg": config["initial_state"]["fuel_kg"],
         "frames": build_frames(run_dir / "log.jsonl"),
+        "scenarios": scenarios or [],
     }
     payload = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     html = TEMPLATE.read_text().replace("__REPLAY_DATA__", payload)

@@ -149,6 +149,9 @@ class Controller:
 
         # Thruster health as estimated by diagnostics (1.0 until tested).
         self.health = {name: 1.0 for name in THRUSTER_NAMES}
+        # How each estimate was obtained: None (assumed nominal, untested),
+        # "brake" (judged from braking evidence) or "pulse" (test firing).
+        self.health_verified = {name: None for name in THRUSTER_NAMES}
         self.diag = None
         self.investigations = 0
         self.events = []
@@ -686,6 +689,7 @@ class Controller:
                     ratio = acc[1] / acc[0]
                     if ratio < r["passive_failed_ratio"]:
                         self.health[name] = 0.0
+                        self.health_verified[name] = "brake"
                         self.pair_heading = None
                         d["results"][name] = {"measured_ratio": ratio, "estimate": 0.0, "method": "brake"}
                         self.events.append({"t": t, "type": "diagnostic", "thruster": name, "measured_ratio": ratio,
@@ -715,6 +719,7 @@ class Controller:
         else:
             estimate = ratio
         self.health[name] = estimate
+        self.health_verified[name] = "pulse"
         d["results"][name] = {"measured_ratio": ratio, "estimate": estimate, "method": "pulse"}
         self.events.append({"t": t, "type": "diagnostic", "thruster": name, "measured_ratio": ratio,
                             "estimate": estimate, "method": "pulse"})

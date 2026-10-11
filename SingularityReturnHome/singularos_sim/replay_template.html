@@ -12,17 +12,18 @@
     --INVESTIGATE: #e3b341; --HOLD: #db6d28; --ABORT: #f85149;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  body { overflow: hidden; margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
          height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); min-width: 0; }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
   .badge { white-space: nowrap; }
   header .meta { color: var(--muted); white-space: nowrap; }
+  #scenario { max-width: 330px; font-size: 12px; }
   header .note-right { margin-left: auto; color: var(--muted); font-size: 11px; text-align: right; max-width: 260px; }
   .badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 12px; }
   .badge.ok { background: rgba(63,185,80,.15); color: var(--ok); }
   .badge.bad { background: rgba(248,81,73,.15); color: var(--bad); }
-  main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  main { display: grid; grid-template-columns: 1fr 392px; min-height: 0; }
   #world-wrap { position: relative; min-width: 0; min-height: 0; }
   #world { position: absolute; inset: 0; width: 100%; height: 100%; }
   aside { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; overflow-y: auto; }
@@ -66,11 +67,53 @@
   #timeline { position: relative; height: 16px; display: flex; border-radius: 4px; overflow: hidden; cursor: pointer; }
   #timeline > div { height: 100%; font-size: 10px; line-height: 16px; padding-left: 4px; color: #0d1117; font-weight: 600; white-space: nowrap; overflow: hidden; }
   #cursor { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); pointer-events: none; }
+  /* Operations console side panel */
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .strip { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 4px 10px; }
+  .strip .met { color: var(--muted); font-size: 12px; text-align: right; }
+  .strip .sub { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .alarm { margin-top: 8px; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+  .alarm .lvl { display: inline-block; min-width: 74px; }
+  .alarm.nominal { color: var(--ok); border-color: rgba(63,185,80,.35); background: rgba(63,185,80,.06); }
+  .alarm.caution { color: #e3b341; border-color: rgba(227,179,65,.55); background: rgba(227,179,65,.08); }
+  .alarm.warning { color: var(--bad); border-color: rgba(248,81,73,.6); background: rgba(248,81,73,.1); }
+  .alarm .msg { font-weight: 600; letter-spacing: .02em; }
+  .analyst { margin-top: 4px; font-size: 11px; color: var(--muted); font-style: italic; min-height: 14px; }
+  .nav { display: grid; grid-template-columns: 1fr 92px 92px; font-size: 12px; margin-top: 4px; }
+  .nav > div { padding: 3px 4px; border-bottom: 1px solid #1b2129; }
+  .nav .hd { color: var(--muted); font-size: 10px; letter-spacing: .06em; border-bottom: 1px solid var(--line); }
+  .nav .v { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .nav .big { font-size: 15px; font-weight: 700; }
+  .nav .t { color: var(--truth); } .nav .o { color: var(--obs); }
+  .nav .u { color: var(--muted); font-size: 10px; margin-left: 2px; }
+  .hg { display: grid; grid-template-columns: 1fr 96px 136px; font-size: 12px; }
+  .hg .hd { color: var(--muted); font-size: 10px; letter-spacing: .06em; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+  .hg .grp { grid-column: 1 / -1; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 6px 4px 2px; }
+  .hg .c { padding: 3px 4px; border-bottom: 1px solid #1b2129; min-height: 22px; }
+  .hg .c.name { color: var(--text); }
+  .hg .mm { background: rgba(227,179,65,.08); }
+  .hg .mm.name { box-shadow: inset 3px 0 0 #e3b341; }
+  .hg .d { display: block; color: var(--muted); font-size: 10px; margin-top: 1px; }
+  .chip { display: inline-block; padding: 0 5px; border-radius: 3px; font: 700 10px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; }
+  .chip.ok { color: var(--ok); background: rgba(63,185,80,.14); }
+  .chip.warn { color: #e3b341; background: rgba(227,179,65,.15); }
+  .chip.bad { color: var(--bad); background: rgba(248,81,73,.16); }
+  .chip.idle { color: var(--muted); background: rgba(139,148,158,.14); }
+  .chip.info { color: var(--obs); background: rgba(79,195,247,.12); }
+  .meter { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-top: 4px; position: relative; }
+  .meter > div { height: 100%; }
+  .meter > i { position: absolute; top: -1px; bottom: -1px; width: 1px; background: var(--text); opacity: .6; }
+  #schematic { width: 100%; height: 112px; display: block; margin-top: 10px; }
+  details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 2px; }
+  details > summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 6px 0; list-style: none; }
+  details > summary::before { content: "\25B8"; display: inline-block; width: 14px; }
+  details[open] > summary::before { content: "\25BE"; }
 </style>
 </head>
 <body>
 <header>
   <h1>SingularOS 2D sim replay</h1>
+  <select id="scenario" title="Switch scenario" hidden></select>
   <span class="meta" id="meta"></span>
   <span class="badge" id="outcome"></span>
   <span class="meta" id="collision"></span>
@@ -79,36 +122,42 @@
 <main>
   <div id="world-wrap"><canvas id="world"></canvas></div>
   <aside>
-    <h2>Phase</h2>
-    <div class="phase-now" id="phase"></div>
-    <div class="clock" id="clock"></div>
+    <div class="strip">
+      <div class="phase-now" id="phase"></div>
+      <div class="met mono" id="clock"></div>
+      <div class="sub" id="phasesub"></div>
+    </div>
+    <div class="alarm nominal" id="alarm"></div>
+    <div class="analyst" id="analyst"></div>
 
-    <h2>Inspection plan</h2>
-    <ol id="plan"></ol>
+    <h2>Relative navigation &middot; LVLH</h2>
+    <div class="nav" id="relnav"></div>
+    <div class="note">Station frame: R-bar = radial (+ away from Earth), V-bar = along-track (+ direction of orbital motion). Range and rate are to the dock port; negative rate = closing.</div>
+
+    <canvas id="schematic"></canvas>
+    <div class="note">Thrusters, top view, nose up. Left: what the vehicle delivers. Right: what the controller commands and believes.</div>
+
+    <h2>System health</h2>
+    <div class="hg" id="health"></div>
+    <div class="note">Sensor faults are not modelled yet; sensor truth is always nominal.</div>
 
     <h2>Event log</h2>
     <ol id="events"></ol>
     <div class="note">TRUTH events are hidden from the controller; CTRL events are what the controller detected and decided.</div>
 
-    <h2>State</h2>
-    <table>
-      <thead><tr><th></th><th class="truth">Truth</th><th class="obs">Controller sees</th></tr></thead>
-      <tbody id="state"></tbody>
-    </table>
-    <div class="note">Truth is hidden from the controller. "Controller sees" is the latest observation from each sensor.</div>
+    <details open><summary>Docking check</summary>
+      <table><tbody id="dock"></tbody></table>
+    </details>
 
-    <h2>Docking check (controller)</h2>
-    <table><tbody id="dock"></tbody></table>
+    <details open><summary>Inspection plan</summary>
+      <ol id="plan"></ol>
+    </details>
 
-    <h2>Thrusters (truth output)</h2>
-    <div class="thr head"><span></span><span>output</span><span></span><span class="h">truth</span><span class="h">ctrl est.</span></div>
-    <div id="thrusters"></div>
+    <details><summary>Dock close-up (&plusmn;1 m)</summary>
+      <canvas id="inset"></canvas>
+    </details>
 
-    <h2>Dock close-up (&plusmn;1 m)</h2>
-    <canvas id="inset"></canvas>
-
-
-    <h2>Legend</h2>
+    <details><summary>Legend</summary>
     <div class="legend">
       <div class="sw" style="background:var(--truth)"></div><div>Truth path and vehicle body; the wedge is the nose (heading)</div>
       <div class="sw" style="background:#ffffff"></div><div>Arrow: direction of travel (truth velocity). Thrusters on all four sides let the vehicle move in any direction, so this often differs from the nose direction.</div>
@@ -121,6 +170,7 @@
       <div class="sw" style="background:var(--bad)"></div><div>Particle impact; red mark on the vehicle = failed thruster (truth)</div>
       <div class="sw" style="background:#e3b341"></div><div>Recovery path chosen by the controller; diamond = hold point</div>
     </div>
+    </details>
   </aside>
 </main>
 <footer>
@@ -183,6 +233,15 @@
   $("collision").innerHTML = `${S.inspections_completed.length}/${STOPS.length} inspected \u00b7 ` +
     (S.collision ? `<span style="color:var(--bad)">collision at ${S.collision.t.toFixed(1)} s (${S.collision.component})</span>`
                  : `no collisions \u00b7 min clearance ${S.min_clearance_in_flight.clearance_m.toFixed(2)} m`);
+
+  // Scenario picker (present when the runs were generated together with --all).
+  if (D.scenarios.length) {
+    const sel = $("scenario");
+    sel.hidden = false;
+    sel.innerHTML = D.scenarios.map(sc =>
+      `<option value="${sc.href}" ${sc.name === S.scenario ? "selected" : ""}>${sc.label}</option>`).join("");
+    sel.addEventListener("change", () => { location.href = sel.value; });
+  }
 
   // Phase timeline
   const segs = [];
@@ -500,6 +559,23 @@
     if (f.nav && f.att) ship(g, v, f.nav[0], f.nav[1], f.att[0], 1.2, C("obs"), false, null);
     ship(g, v, pose.x, pose.y, pose.h, 1.2, C("truth"), true, f.thrust, f.health);
     drawOrbitCompass(g, w, h);
+
+    // Axis labels in the station (LVLH) frame.
+    g.font = "bold 11px system-ui, sans-serif"; g.fillStyle = "#6e7681";
+    g.textAlign = "right"; g.fillText("R-bar \u2192 (away from Earth)", w - 8, v.Y(0) - 6);
+    g.textAlign = "left"; g.save(); g.translate(v.X(0) + 14, 16); g.fillText("\u2191 V-bar (orbital motion)", 0, 0); g.restore();
+
+    // Live coordinate tag beside the vehicle (truth).
+    const rng = Math.hypot(pose.x, pose.y);
+    const tag = [`R ${pose.x >= 0 ? "+" : "\u2212"}${Math.abs(pose.x).toFixed(1)}  V ${pose.y >= 0 ? "+" : "\u2212"}${Math.abs(pose.y).toFixed(1)} m`,
+                 `range ${rng.toFixed(1)} m`];
+    const tx = v.X(pose.x) + 22, ty = v.Y(pose.y) + 22;
+    g.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    const tw = Math.max(...tag.map(l => g.measureText(l).width)) + 10;
+    g.fillStyle = "rgba(13,17,23,0.85)"; g.strokeStyle = "rgba(245,185,66,0.6)"; g.lineWidth = 1;
+    g.fillRect(tx, ty, tw, 32); g.strokeRect(tx, ty, tw, 32);
+    g.beginPath(); g.moveTo(v.X(pose.x), v.Y(pose.y)); g.lineTo(tx, ty); g.stroke();
+    g.fillStyle = C("truth"); tag.forEach((l, k) => g.fillText(l, tx + 5, ty + 13 + 13 * k));
     velocityArrow(g, v, pose.x, pose.y, pose.vx, pose.vy, VMAX, "#ffffff");
   }
 
@@ -528,6 +604,7 @@
   }
 
   function drawInset(pose) {
+    if (!$("inset").clientWidth) return;
     const { g, w, h } = setupCanvas($("inset"));
     const v = view(w, h, -1, 1, -1, 1);
     grid(g, v, w, h, 0.25, false);
@@ -579,6 +656,169 @@
 
   const fmt = (x, d) => x === null || x === undefined ? "&ndash;" : x.toFixed(d);
   const deg = r => r === null || r === undefined ? null : r * 180 / Math.PI;
+  const met = s => {
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s - 60 * Math.floor(s / 60);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${x.toFixed(1).padStart(4, "0")}`;
+  };
+  const MODE_TEXT = {
+    DEPART: "Normal operations: leaving the dock",
+    INSPECT: "Normal operations: inspection loop",
+    INVESTIGATE: "Emergency: diagnosing an anomaly",
+    RETURN: "Emergency: returning on surviving thrusters",
+    APPROACH: "Final approach to the dock",
+    DOCKED: "Docked and confirmed",
+    HOLD: "Fallback: holding at a safe point",
+    ABORT: "Fallback: safe stop, thrusters off",
+  };
+  const SENSORS = [
+    ["attitude_sensor", "Attitude sensor", u => `\u00b1${(u * 180 / Math.PI).toFixed(2)}\u00b0`],
+    ["navigation", "Navigation", u => `\u00b1${(u * 100).toFixed(0)} cm`],
+    ["fuel_monitor", "Fuel monitor", u => `\u00b1${(u * 1000).toFixed(0)} g`],
+  ];
+  const THR_LABEL = { forward: "Forward thruster", backward: "Backward thruster", left: "Left thruster", right: "Right thruster" };
+
+  // Status of one thruster, from an effectiveness value.
+  function thrStatus(h) {
+    if (h < D.usable_effectiveness) return { label: "FAILED", cls: "bad", key: "failed" };
+    if (h < 0.999) return { label: `DEGRADED ${(100 * h).toFixed(0)}%`, cls: "warn", key: "degraded" };
+    return { label: "NOMINAL", cls: "ok", key: "nominal" };
+  }
+  function beliefStatus(f, k) {
+    if (!f.ver[k]) return { label: "UNVERIFIED", cls: "idle", key: "nominal", detail: "assumed OK" };
+    const st = thrStatus(f.est[k]);
+    return { ...st, detail: f.ver[k] === "pulse" ? "by test firing" : "by braking response" };
+  }
+  const chip = (label, cls) => `<span class="chip ${cls}">${label}</span>`;
+  const cell = (html, cls = "") => `<div class="c ${cls}">${html}</div>`;
+
+  // Range, range rate and LVLH components, truth vs. navigation estimate.
+  function relnav(x, y, vx, vy) {
+    const r = Math.hypot(x, y);
+    return { r, rdot: r > 1e-6 ? (x * vx + y * vy) / r : 0, x, y, vx, vy };
+  }
+  function drawRelNav(f, T, n, a) {
+    const tr = relnav(T[0], T[1], T[2], T[3]), ob = n ? relnav(n[0], n[1], n[2], n[3]) : null;
+    const sg = (v, d) => (v >= 0 ? "+" : "\u2212") + Math.abs(v).toFixed(d);
+    const row = (label, tv, ov, unit, d, big = false, signed = true) =>
+      `<div>${label}</div><div class="v t ${big ? "big" : ""}">${tv == null ? "&ndash;" : (signed ? sg(tv, d) : tv.toFixed(d))}<span class="u">${unit}</span></div>`
+      + `<div class="v o ${big ? "big" : ""}">${ov == null ? "&ndash;" : (signed ? sg(ov, d) : ov.toFixed(d))}<span class="u">${unit}</span></div>`;
+    let html = `<div class="hd">QUANTITY</div><div class="hd v">TRUTH</div><div class="hd v">NAV ESTIMATE</div>`;
+    html += row("Range to dock", tr.r, ob && ob.r, "m", 2, true, false);
+    html += row("Range rate", tr.rdot, ob && ob.rdot, "m/s", 3, true);
+    html += row("R-bar (radial)", tr.x, ob && ob.x, "m", 2);
+    html += row("V-bar (along-track)", tr.y, ob && ob.y, "m", 2);
+    html += row("R-bar rate", tr.vx, ob && ob.vx, "m/s", 3);
+    html += row("V-bar rate", tr.vy, ob && ob.vy, "m/s", 3);
+    html += row("Heading", deg(T[4]), a && deg(a[0]), "\u00b0", 1);
+    html += row("Fuel", T[6], f.fuel, "kg", 3, false, false);
+    html += `<div>Station clearance</div><div class="v t">${f.clear.toFixed(2)}<span class="u">m</span></div><div class="v note">not sensed</div>`;
+    html += `<div>Nav fix age</div><div class="v"></div><div class="v o">${n ? n[4].toFixed(1) : "&ndash;"}<span class="u">s</span></div>`;
+    $("relnav").innerHTML = html;
+  }
+
+  function drawHealth(pose) {
+    const f = F[pose.i];
+    let html = `<div class="hd">COMPONENT</div><div class="hd">TRUTH</div><div class="hd">CONTROLLER BELIEF</div>`;
+    const warnings = [], cautions = [];
+    let hidden = 0;
+
+    html += `<div class="grp">Propulsion</div>`;
+    THR.forEach((name, k) => {
+      const tr = thrStatus(f.health[k]), be = beliefStatus(f, k);
+      const mm = tr.key !== be.key ? " mm" : "";
+      if (mm) hidden += 1;
+      const out = D.max_thrust_n[k] > 0 ? f.thrust[k] / D.max_thrust_n[k] : 0;
+      const tdet = out > 0.005 ? `out ${(100 * out).toFixed(0)}%` : (f.cmd[k] > 0.005 ? "NO OUTPUT" : "");
+      const bdet = (f.cmd[k] > 0.005 ? `cmd ${(100 * f.cmd[k]).toFixed(0)}% \u00b7 ` : "") + be.detail;
+      html += cell(THR_LABEL[name], "name" + mm) + cell(chip(tr.label, tr.cls) + `<span class="d">${tdet}</span>`, mm)
+            + cell(chip(be.label, be.cls) + `<span class="d">${bdet}</span>`, mm);
+      if (be.key === "failed") warnings.push(`${name.toUpperCase()} THRUSTER FAILED`);
+      else if (be.key === "degraded") cautions.push(`${name.toUpperCase()} THRUSTER DEGRADED`);
+    });
+    html += cell("Attitude control", "name") + cell(chip("NOMINAL", "ok")) + cell(chip("NOT MONITORED", "idle"));
+
+    html += `<div class="grp">Sensors</div>`;
+    for (const [src, label, fmtU] of SENSORS) {
+      const sv = f.sens[src], limit = 3 * (D.sensor_period_s[src] || 1);
+      let be;
+      if (!sv) be = { label: "NO DATA", cls: "bad", d: "no reading received" };
+      else if (!sv[1]) be = { label: "UNAVAILABLE", cls: "bad", d: `last reading ${sv[0].toFixed(1)} s ago` };
+      else if (sv[0] > limit) be = { label: "STALE", cls: "warn", d: `${sv[0].toFixed(1)} s old (limit ${limit.toFixed(1)} s)` };
+      else be = { label: "OK", cls: "ok", d: `age ${sv[0].toFixed(1)} s \u00b7 ${sv[2] == null ? "" : fmtU(sv[2])}` };
+      if (be.cls === "bad") warnings.push(`${label.toUpperCase()} ${be.label}`);
+      if (be.cls === "warn") cautions.push(`${label.toUpperCase()} STALE`);
+      html += cell(label, "name") + cell(chip("NOMINAL", "ok"))
+            + cell(chip(be.label, be.cls) + `<span class="d">${be.d}</span>`);
+    }
+
+    html += `<div class="grp">Controller</div>`;
+    const thr = D.monitor_threshold_m_s;
+    let mon;
+    if (f.res == null) mon = chip(f.phase === "INVESTIGATE" ? "PAUSED" : "STANDBY", "idle") + `<span class="d">${f.phase === "INVESTIGATE" ? "diagnostics running" : ["HOLD", "ABORT", "DOCKED"].includes(f.phase) ? "off after final outcome" : "warming up"}</span>`;
+    else {
+      const frac = Math.min(f.res / thr, 1.5), col = f.res >= thr ? C("bad") : f.res >= 0.5 * thr ? "#e3b341" : C("ok");
+      mon = chip(f.res >= thr ? "ANOMALY" : "NORMAL", f.res >= thr ? "bad" : "ok")
+        + `<span class="d">mismatch ${f.res.toFixed(3)} / ${thr} m/s</span>`
+        + `<div class="meter"><div style="width:${(100 * frac / 1.5).toFixed(0)}%;background:${col}"></div><i style="left:${(100 / 1.5).toFixed(1)}%"></i></div>`;
+      if (f.res >= thr) cautions.push("MOTION DOES NOT MATCH COMMANDS");
+    }
+    html += cell("Fault monitor", "name") + cell("") + cell(mon);
+    const plan = planEvs.filter(e => e.k <= pose.i).pop();
+    const pending = !plan && f.phase === "INVESTIGATE";
+    const pcls = !plan ? (pending ? "warn" : "idle") : plan.decision === "RETURN" ? "info" : plan.decision === "HOLD" ? "warn" : "bad";
+    html += cell("Recovery plan", "name") + cell("") + cell(chip(plan ? plan.decision : pending ? "PENDING" : "NONE", pcls)
+      + `<span class="d">${plan ? (plan.decision === "RETURN" ? "dock on surviving thrusters" : plan.decision === "HOLD" ? "cannot dock, hold safe" : "no safe hold, safe stop") : pending ? "awaiting diagnosis" : "not needed"}</span>`);
+    $("health").innerHTML = html;
+
+    if (f.phase === "ABORT") warnings.unshift("ABORT");
+    if (f.phase === "INVESTIGATE") cautions.unshift("FAULT INVESTIGATION");
+    if (f.phase === "HOLD") cautions.unshift(f.leg.startsWith("safe orbit") ? "SAFE ORBIT, NOT RETURNING TO DOCK" : "HOLDING, DOCKING NOT POSSIBLE");
+    const level = warnings.length ? "warning" : cautions.length ? "caution" : "nominal";
+    const items = warnings.length ? warnings.concat(cautions) : cautions;
+    const al = $("alarm");
+    al.className = "alarm " + level;
+    al.innerHTML = `<span class="lvl">${level === "nominal" ? "NOMINAL" : level.toUpperCase()}</span>`
+      + `<span class="msg">${items.length ? items.join(" \u00b7 ") : "All monitored systems nominal"}</span>`;
+    $("analyst").textContent = hidden
+      ? `Truth view: ${hidden} fault${hidden > 1 ? "s" : ""} not yet known to the controller (highlighted rows)` : "";
+  }
+
+  // Two top-view vehicle schematics: delivered thrust (truth) and commanded thrust (controller).
+  function drawSchematic(pose) {
+    const cv = $("schematic");
+    if (!cv.clientWidth) return;
+    const { g, w, h } = setupCanvas(cv);
+    const f = F[pose.i];
+    // Nozzle side (unit vector, screen coords, nose up) for each thruster: opposite its push.
+    const NOZ = { forward: [0, 1], backward: [0, -1], left: [1, 0], right: [-1, 0] };
+    const draw = (cx, title, statusOf, levelOf) => {
+      const cy = h / 2 + 8, b = 20;
+      g.fillStyle = "#8b949e"; g.font = "10px system-ui, sans-serif"; g.textAlign = "center";
+      g.fillText(title, cx, 12);
+      g.fillStyle = "#2d333b"; g.strokeStyle = "#6e7681"; g.lineWidth = 1.5;
+      g.fillRect(cx - b, cy - b, 2 * b, 2 * b); g.strokeRect(cx - b, cy - b, 2 * b, 2 * b);
+      g.fillStyle = "#6e7681"; g.beginPath(); g.moveTo(cx - 9, cy - b); g.lineTo(cx, cy - b - 12); g.lineTo(cx + 9, cy - b); g.closePath(); g.fill();
+      THR.forEach((name, k) => {
+        const [dx, dy] = NOZ[name], st = statusOf(k), lvl = levelOf(k);
+        const nx = cx + dx * (b + 5), ny = cy + dy * (b + 5);
+        const col = st === "bad" ? C("bad") : st === "warn" ? "#e3b341" : st === "idle" ? "#8b949e" : C("ok");
+        if (lvl > 0.01) {
+          g.strokeStyle = `rgba(255,140,60,${0.35 + 0.6 * Math.min(lvl, 1)})`; g.lineWidth = 5;
+          g.beginPath(); g.moveTo(nx + dx * 5, ny + dy * 5); g.lineTo(nx + dx * (8 + 26 * Math.min(lvl, 1)), ny + dy * (8 + 26 * Math.min(lvl, 1))); g.stroke();
+        }
+        g.fillStyle = col; g.fillRect(nx - 5, ny - 5, 10, 10);
+        g.fillStyle = "#c9d1d9"; g.font = "bold 9px system-ui, sans-serif";
+        const lx = nx + (dx ? dx * 14 : 12), ly = ny + (dy ? dy * 14 : 0) + 3;
+        g.fillText(name[0].toUpperCase(), lx, ly);
+      });
+      g.textAlign = "left";
+    };
+    const cls = hv => thrStatus(hv).cls;
+    draw(w * 0.27, "TRUTH: delivered", k => cls(f.health[k]), k => D.max_thrust_n[k] > 0 ? f.thrust[k] / D.max_thrust_n[k] : 0);
+    draw(w * 0.73, "CONTROLLER: commanded", k => f.ver[k] ? cls(f.est[k]) : "idle", k => f.cmd[k]);
+    g.strokeStyle = "#30363d"; g.beginPath(); g.moveTo(w / 2, 18); g.lineTo(w / 2, h - 4); g.stroke();
+  }
+
   function drawPanel(pose) {
     const f = F[pose.i], T = f.truth, n = f.nav, a = f.att;
     const curStop = STOPS.find(st => f.leg === st.name);
@@ -591,7 +831,9 @@
       return `<li class="${status}"><span>${status === "done" ? "&#10003;" : k + 1}</span><span>${st.name}</span><span class="st">${label}</span></li>`;
     }).join("");
     $("phase").style.color = C(f.phase);
-    $("clock").textContent = `t = ${t.toFixed(1)} s` + (n ? `  |  nav age ${n[4].toFixed(2)} s` : "");
+    $("clock").textContent = `MET ${met(t)}`;
+    $("phasesub").textContent = f.leg === "safe orbit burn" ? "Fallback: raising perigee to a safe orbit"
+      : f.leg === "safe orbit" ? "Fallback: holding in a safe orbit" : MODE_TEXT[f.phase] || "";
     const rows = [
       ["x (m)", T[0], n && n[0], 3], ["y (m)", T[1], n && n[1], 3],
       ["speed (m/s)", Math.hypot(T[2], T[3]), n && Math.hypot(n[2], n[3]), 3],
@@ -601,16 +843,9 @@
       ["fuel (kg)", T[6], f.fuel, 3],
       ["station clearance (m)", f.clear, null, 2],
     ];
-    $("state").innerHTML = rows.map(([k, tv, ov, d]) => `<tr><td>${k}</td><td>${fmt(tv, d)}</td><td>${fmt(ov, d)}</td></tr>`).join("");
-    const tested = new Set(EVENTS.filter(e => e.type === "diagnostic" && e.k <= pose.i).map(e => e.thruster));
-    const cls = hv => hv < 0.2 ? "bad" : hv < 0.999 ? "warn" : "";
-    $("thrusters").innerHTML = THR.map((name, k) => {
-      const frac = D.max_thrust_n[k] > 0 ? f.thrust[k] / D.max_thrust_n[k] : 0;
-      const est = tested.has(name) ? `${(100 * f.est[k]).toFixed(0)}%` : "assumed";
-      return `<div class="thr"><span class="note">${name}</span><div class="bar"><div style="width:${(100 * frac).toFixed(0)}%"></div></div>` +
-        `<span>${f.thrust[k].toFixed(2)} N</span><span class="h ${cls(f.health[k])}">${(100 * f.health[k]).toFixed(0)}%</span>` +
-        `<span class="h ${tested.has(name) ? cls(f.est[k]) : ""}">${est}</span></div>`;
-    }).join("");
+    drawRelNav(f, T, n, a);
+    drawHealth(pose);
+    drawSchematic(pose);
 
     const shown = EVENTS.filter(e => e.k <= pose.i);
     $("events").innerHTML = shown.length ? shown.slice().reverse().map((e, j) =>

@@ -165,6 +165,15 @@ def test_fault_is_detected_quickly_and_diagnosed(fault_runs, name):
         assert abs(h["estimate"] - h["truth"]) <= 0.15, thruster
 
 
+def test_controller_logs_how_thruster_health_was_verified(fault_runs):
+    _, _, log = fault_runs["thruster_fault"]
+    ticks = [r["controller"] for r in log if "controller" in r]
+    assert all(v is None for v in ticks[0]["health_verified"].values())
+    final = ticks[-1]["health_verified"]
+    assert final["left"] == "brake"  # found dead while braking after the impact
+    assert {final[n] for n in ("forward", "backward", "right")} == {"pulse"}
+
+
 def test_infeasible_fault_never_attempts_docking(fault_runs):
     _, summary, log = fault_runs["thruster_fault_infeasible"]
     phases = {r["controller"]["phase"] for r in log if "controller" in r}
@@ -273,3 +282,24 @@ def test_abort_brakes_to_safe_then_shuts_down(fault_runs, nominal_config):
     # Unpowered afterwards: orbital motion still moves it.
     start, end = after[0]["truth"], after[-1]["truth"]
     assert math.hypot(end["x_m"] - start["x_m"], end["y_m"] - start["y_m"]) > 1.0
+
+
+def test_describe_faults_labels():
+    from singularos_sim.replay import describe_faults
+
+    assert describe_faults([]) == "no faults"
+    impact = {"type": "impact"}
+    lost = lambda n: {"type": "thruster", "thruster": n, "effectiveness": 0.0}
+    assert describe_faults([impact, lost("forward"), lost("backward")]) == "forward+backward lost"
+    assert describe_faults([{"type": "thruster", "thruster": "forward", "effectiveness": 0.4}]) == "forward at 40%"
+
+
+def test_replay_scenario_picker_links_runs(nominal_config, tmp_path):
+    from singularos_sim.replay import build_replay
+
+    run_scenario(nominal_config, tmp_path / "nominal-seed1")
+    picker = [{"name": "nominal", "href": "../nominal-seed1/replay.html", "label": "nominal"}]
+    html = build_replay(tmp_path / "nominal-seed1", picker).read_text()
+    start = html.index('<script id="data" type="application/json">') + len('<script id="data" type="application/json">')
+    data = json.loads(html[start:html.index("</script>", start)])
+    assert data["scenarios"] == picker
