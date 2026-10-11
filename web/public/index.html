@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SingularOS — simulated return-to-Earth demo</title>
+  <meta name="description" content="SingularOS is an autonomous Linux stack that uses whatever hardware it finds to navigate a spacecraft back to Earth. This page plays a simulated mission on loop.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Display:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="chart" aria-hidden="true"></canvas>
+
+  <header class="title">
+    <h1>SingularOS</h1>
+    <p>An autonomous Linux stack that boots on whatever hardware it is given, works out where it is, and flies itself home. This is a simulated mission, playing on loop.</p>
+  </header>
+
+  <aside class="log" aria-label="Onboard log">
+    <div class="readout">
+      <div><span class="k">Mission time</span><span class="v" id="met">T+00:00</span></div>
+      <div><span class="k">Position error</span><span class="v" id="err">unknown</span></div>
+    </div>
+    <ol id="log" aria-live="off"></ol>
+  </aside>
+
+  <nav class="phases" aria-label="Mission phases">
+    <ol id="phases">
+      <li>Boot</li>
+      <li>Coast</li>
+      <li>Fix position</li>
+      <li>Plan</li>
+      <li>Burn</li>
+      <li>Reentry</li>
+    </ol>
+  </nav>
+
+  <script src="main.js"></script>
+</body>
+</html>
