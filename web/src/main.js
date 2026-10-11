@@ -131,16 +131,27 @@ $('scene').addEventListener('webglcontextlost', (event) => {
   updateUI(playback.time);
 });
 $('scene').addEventListener('webglcontextrestored', () => {
-  contextLost = false;
-  $('render-status').hidden = true;
-  document.body.classList.remove('render-fallback');
-  $('play').disabled = $('replay').disabled = false;
-  scene.resize();
-  render();
+  // Draw on the next frame, after Three.js has handled the restoration event
+  // and rebuilt its GL state. Paused playback still needs this single redraw.
+  requestAnimationFrame(() => {
+    contextLost = false;
+    $('render-status').hidden = true;
+    document.body.classList.remove('render-fallback');
+    $('play').disabled = $('replay').disabled = false;
+    scene.restore();
+    scene.resize();
+    render();
+  });
 });
 
 try {
-  scene = createScene($('scene'));
+  scene = createScene($('scene'), {
+    invalidate: () => { if (available && !contextLost) render(); },
+    onTextureError: () => {
+      $('render-status').textContent = 'Some planet textures could not load. The mission remains available; reload to retry.';
+      $('render-status').hidden = false;
+    },
+  });
   available = true;
 } catch (error) {
   console.warn('3D scene unavailable:', error.message);

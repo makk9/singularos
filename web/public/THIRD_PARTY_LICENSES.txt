@@ -1,3 +1,9 @@
+NASA Earth imagery
+See textures/SOURCES.md for source URLs, credits, and usage terms.
+NASA imagery is generally not subject to copyright in the United States and is
+made available under https://www.nasa.gov/nasa-brand-center/images-and-media/.
+Its inclusion does not imply NASA endorsement.
+
 Three.js
 https://threejs.org/
 
