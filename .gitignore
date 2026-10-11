@@ -57,6 +57,10 @@ out/
 target/
 coverage/
 
+# Wrangler local dev state
+.wrangler/
+.dev.vars*
+
 # Caches and temp files
 .cache/
 tmp/
