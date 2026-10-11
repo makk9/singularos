@@ -1,0 +1,58 @@
+# SingularOS
+
+A stylized 3D demonstration of an autonomous spacecraft returning to Earth. The
+mission discovers available hardware, establishes a position from celestial
+observations, plans a trajectory, and returns without a ground link.
+
+The spacecraft, navigation, trajectory, telemetry, and timing are illustrative.
+This repository contains the browser demo; it does not implement flight control
+or a Linux operating system.
+
+## Development
+
+Requires Node.js 22.12 or newer and pnpm.
+
+```sh
+cd web
+pnpm install
+pnpm dev
+```
+
+Open the local URL printed by Vite. Use Pause, Replay, the timeline, or the
+mission-phase buttons to inspect the animation. A URL query such as `?t=18.5`
+opens a paused view at that second. Reduced-motion preferences start the demo in
+a paused view; playback can be started explicitly.
+
+## Verification and deployment
+
+```sh
+cd web
+pnpm test
+pnpm build
+pnpm exec wrangler deploy --dry-run
+```
+
+`pnpm preview` serves the production build locally. `pnpm deploy` builds the site
+and deploys its static assets to the custom domain configured in
+`web/wrangler.jsonc`. Cloudflare credentials are required for deployment.
+
+## Implementation
+
+- Three.js renders the spacecraft, globe, Moon, starfield, and navigation guides.
+- Geometry and textures are generated locally from the source. No external
+  models or image assets are loaded.
+- `web/src/mission.js` defines the scripted mission and playback clock.
+- `web/src/scene.js` builds and animates the 3D scene.
+- `web/src/main.js` connects playback to the accessible HTML controls and log.
+- Vite bundles the dependencies into `web/dist`, which is ignored by Git.
+- Google Fonts supplies the typefaces, with local font fallbacks.
+
+If WebGL is unavailable, the mission controls and textual telemetry remain
+usable. Graphics-context interruptions pause playback; after recovery, playback
+can be resumed explicitly.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Three.js, Vite, and Wrangler retain their respective
+package licenses. The deployed assets include runtime notices in
+[THIRD_PARTY_LICENSES.txt](web/public/THIRD_PARTY_LICENSES.txt).

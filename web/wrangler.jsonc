@@ -5,5 +5,5 @@
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "singularos.willsarg.com", "custom_domain": true }],
-  "assets": { "directory": "./public" }
+  "assets": { "directory": "./dist" }
 }
