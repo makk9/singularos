@@ -30,6 +30,11 @@ def main(argv=None):
         print(f"anomaly detected at t={s['anomaly_detected_t']:.1f} s{latency}")
         est = ", ".join(f"{k} {v['estimate']:.2f} (truth {v['truth']:.2f})" for k, v in s["health_estimate_vs_truth"].items())
         print(f"diagnosed thruster health: {est}")
+    if s["post_outcome_observed_s"]:
+        dev = s["hold_max_deviation_m"]
+        print(f"after {s['outcome']}: observed {s['post_outcome_observed_s']:.0f} s more; "
+              + (f"max distance from hold point {dev:.2f} m" if dev is not None else
+                 f"final position ({s['final_position_m'][0]:.1f}, {s['final_position_m'][1]:.1f}) m"))
     if s["plan"]:
         print(f"recovery decision: {s['plan']['decision']}; " + "; ".join(s["plan"]["reasons"]))
     print(f"sim time: {s['sim_time_s']:.2f} s  steps: {s['steps']}")
@@ -50,8 +55,11 @@ def main(argv=None):
     ok = s["outcome"] == s["expected_outcome"] and col is None
     if s["outcome"] == "DOCKED":
         ok = ok and truth["pass"]
-    print(f"result: {'PASS' if ok else 'FAIL'} (outcome matches expected, no collision" +
-          (", truth within docking thresholds)" if s["outcome"] == "DOCKED" else ")"))
+    checks = [f"outcome {'matches' if s['outcome'] == s['expected_outcome'] else 'differs from'} expected",
+              "no collision" if col is None else "collision"]
+    if s["outcome"] == "DOCKED":
+        checks.append("truth within docking thresholds" if truth["pass"] else "truth OUTSIDE docking thresholds")
+    print(f"result: {'PASS' if ok else 'FAIL'} ({', '.join(checks)})")
     return 0 if ok else 1
 
 

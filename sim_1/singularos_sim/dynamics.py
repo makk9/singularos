@@ -4,9 +4,13 @@ Frame: 2D, station-centred, dock at the origin. x/y in metres, heading in
 radians measured counter-clockwise from +x. Body +x is the vehicle nose; body
 +y is the vehicle's left side.
 
-Orbital mechanics is deliberately omitted: there is no gravity, no orbital
-relative motion (e.g. Clohessy-Wiltshire terms) and no drag. The only forces
-are the vehicle's own thrusters. This is a 2D local-proximity model only.
+The station is on a circular orbit and the frame moves with it: +x is
+radial (away from Earth), +y is along-track (direction of orbital motion).
+Relative motion follows the linearised Clohessy-Wiltshire equations (see
+orbit.py), so an unpowered vehicle drifts relative to the station. Heading is
+measured in this station frame; the frame's own rotation (one turn per orbit)
+and gravity-gradient torque are not modelled. No drag, no out-of-plane
+motion.
 
 Faults (config [[faults]]) act on truth only, through physics:
   impact   - an external world-frame acceleration and angular acceleration held
@@ -26,6 +30,7 @@ from collections import deque
 from dataclasses import asdict, dataclass
 
 from .config import THRUSTER_DIRECTIONS, THRUSTER_NAMES, steps_for
+from .orbit import mean_motion, natural_accel
 
 
 def wrap_angle(a):
@@ -70,6 +75,7 @@ class Vehicle:
         init = config["initial_state"]
         vehicle = config["vehicle"]
         self.dt = dt
+        self.n = mean_motion(config["orbit"]["period_s"])
         self.dry_mass = vehicle["dry_mass_kg"]
         self.attitude = vehicle["attitude"]
         self.thrusters = vehicle["thrusters"]
@@ -155,8 +161,9 @@ class Vehicle:
         s.fuel_kg = max(0.0, s.fuel_kg - demand * scale)
 
         c, sn = math.cos(s.heading_rad), math.sin(s.heading_rad)
-        ax = (c * fx_body - sn * fy_body) / mass + ext_ax
-        ay = (sn * fx_body + c * fy_body) / mass + ext_ay
+        nat_ax, nat_ay = natural_accel(self.n, s.x_m, s.y_m, s.vx_m_s, s.vy_m_s)
+        ax = (c * fx_body - sn * fy_body) / mass + ext_ax + nat_ax
+        ay = (sn * fx_body + c * fy_body) / mass + ext_ay + nat_ay
 
         s.vx_m_s += ax * dt
         s.vy_m_s += ay * dt

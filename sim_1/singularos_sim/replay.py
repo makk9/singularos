@@ -71,6 +71,7 @@ def build_replay(run_dir):
         "frame_period_s": config["scenario"]["controller_period_s"],
         "mission": config["mission"],
         "station": config["station"]["components"],
+        "orbit_period_s": config["orbit"]["period_s"],
         "docking": config["docking"],
         "max_thrust_n": [config["vehicle"]["thrusters"][n]["max_thrust_n"] for n in THRUSTER_NAMES],
         "initial_fuel_kg": config["initial_state"]["fuel_kg"],
