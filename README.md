@@ -23,6 +23,12 @@ mission-phase buttons to inspect the animation. A URL query such as `?t=18.5`
 opens a paused view at that second. Reduced-motion preferences start the demo in
 a paused view; playback can be started explicitly.
 
+## Simulator
+
+`sim_1/` contains a headless Python 2D simulator for the mission defined in
+[MISSION.md](MISSION.md). See [sim_1/README.md](sim_1/README.md) for setup, run and
+test commands.
+
 ## Verification and deployment
 
 ```sh

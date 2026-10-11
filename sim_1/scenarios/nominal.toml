@@ -1,0 +1,248 @@
+# Nominal inspection loop around the station and return to dock, no faults
+# (build-order step 1).
+# All values SI: m, s, kg, N, rad, rad/s.
+
+[scenario]
+name = "nominal"
+seed = 1
+sim_dt_s = 0.05             # fixed physics timestep
+controller_period_s = 0.2   # controller cadence (multiple of sim_dt_s)
+max_duration_s = 1800.0     # run ends NOT_DOCKED if exceeded
+
+[initial_state]
+# Vehicle starts latched at the dock (origin), at rest, nose toward the station.
+x_m = 0.0
+y_m = 0.0
+vx_m_s = 0.0
+vy_m_s = 0.0
+heading_rad = 3.141592653589793
+angular_rate_rad_s = 0.0
+fuel_kg = 2.0
+
+[vehicle]
+dry_mass_kg = 50.0
+radius_m = 0.5                  # collision radius for station clearance checks
+
+[vehicle.attitude]
+# Rotation is commanded as a target angular rate, limited in rate and
+# acceleration. Changing angular rate consumes fuel (RCS propellant).
+max_rate_rad_s = 0.2
+max_angular_accel_rad_s2 = 0.1
+fuel_per_rate_change_kg_per_rad_s = 0.005
+
+# Body-frame thrusters. forward pushes along +body-x (nose direction),
+# left along +body-y. effectiveness is true hardware health (1.0 = nominal);
+# it is truth, never given to the controller.
+[vehicle.thrusters.forward]
+max_thrust_n = 2.0
+fuel_rate_kg_s = 0.002      # at full throttle
+response_delay_s = 0.1
+effectiveness = 1.0
+
+[vehicle.thrusters.backward]
+max_thrust_n = 2.0
+fuel_rate_kg_s = 0.002
+response_delay_s = 0.1
+effectiveness = 1.0
+
+[vehicle.thrusters.left]
+max_thrust_n = 2.0
+fuel_rate_kg_s = 0.002
+response_delay_s = 0.1
+effectiveness = 1.0
+
+[vehicle.thrusters.right]
+max_thrust_n = 2.0
+fuel_rate_kg_s = 0.002
+response_delay_s = 0.1
+effectiveness = 1.0
+
+[sensors.attitude]
+period_s = 0.1
+heading_std_rad = 0.005
+angular_rate_std_rad_s = 0.002
+
+[sensors.navigation]
+period_s = 0.2
+position_std_m = 0.05
+velocity_std_m_s = 0.01
+
+[sensors.fuel]
+period_s = 1.0
+fuel_std_kg = 0.01
+
+[station]
+# Static station geometry in the station frame, as axis-aligned rectangles.
+# The docking port's outer face is at x = 0 with the dock point at the origin.
+# Known to the controller as documentation; used by the runner for truth-side
+# collision and clearance checks. The docking port is excluded from collision
+# checks because docking is intended contact.
+[[station.components]]
+name = "Docking port"
+type = "docking_port"
+min_m = [-1.0, -1.0]
+max_m = [0.0, 1.0]
+
+[[station.components]]
+name = "Core module"
+type = "hull"
+min_m = [-13.0, -3.0]
+max_m = [-1.0, 3.0]
+
+[[station.components]]
+name = "North truss"
+type = "truss"
+min_m = [-7.5, 3.0]
+max_m = [-6.5, 5.0]
+
+[[station.components]]
+name = "North solar array"
+type = "solar_array"
+min_m = [-12.0, 5.0]
+max_m = [-2.0, 13.0]
+
+[[station.components]]
+name = "South truss"
+type = "truss"
+min_m = [-7.5, -5.0]
+max_m = [-6.5, -3.0]
+
+[[station.components]]
+name = "South solar array"
+type = "solar_array"
+min_m = [-12.0, -13.0]
+max_m = [-2.0, -5.0]
+
+[[station.components]]
+name = "Radiator"
+type = "radiator"
+min_m = [-15.0, -6.0]
+max_m = [-13.0, 6.0]
+
+[mission]
+# Staging point on the dock approach axis; the vehicle backs out to it on
+# departure and returns through it before final approach.
+staging_point_m = [8.0, 0.0]
+dock_heading_rad = 3.141592653589793
+
+# Inspection loop around the station, flown in order after staging.
+# kind = "inspect": stop at point_m, turn the nose to face look_at_m, hold.
+#   target names the station component being inspected (for logs/replay).
+# kind = "via": pass-through corner to keep clear of the station; no stop.
+# The route is pre-planned to keep at least 5 m from all station components.
+[[mission.route]]
+kind = "inspect"
+name = "Docking port"
+target = "Docking port"
+point_m = [5.0, 4.0]
+look_at_m = [-0.5, 0.0]
+hold_s = 8.0
+
+[[mission.route]]
+kind = "via"
+point_m = [3.0, 18.0]
+
+[[mission.route]]
+kind = "inspect"
+name = "North solar array"
+target = "North solar array"
+point_m = [-7.0, 18.0]
+look_at_m = [-7.0, 9.0]
+hold_s = 8.0
+
+[[mission.route]]
+kind = "via"
+point_m = [-20.0, 18.0]
+
+[[mission.route]]
+kind = "inspect"
+name = "Radiator"
+target = "Radiator"
+point_m = [-20.0, 0.0]
+look_at_m = [-14.0, 0.0]
+hold_s = 8.0
+
+[[mission.route]]
+kind = "via"
+point_m = [-20.0, -18.0]
+
+[[mission.route]]
+kind = "inspect"
+name = "South solar array"
+target = "South solar array"
+point_m = [-7.0, -18.0]
+look_at_m = [-7.0, -9.0]
+hold_s = 8.0
+
+[[mission.route]]
+kind = "via"
+point_m = [3.0, -18.0]
+
+[[mission.route]]
+kind = "inspect"
+name = "Core module hull"
+target = "Core module"
+point_m = [6.0, -6.0]
+look_at_m = [-1.0, -2.0]
+hold_s = 8.0
+
+[controller]
+transit_max_speed_m_s = 0.5
+approach_max_speed_m_s = 0.1
+position_gain_1_s = 0.1         # desired speed per metre of position error
+velocity_gain_1_s = 0.5         # desired accel per m/s of velocity error
+braking_accel_fraction = 0.5    # fraction of max accel assumed for braking
+accel_deadband_m_s2 = 0.002
+heading_gain_1_s = 0.5
+heading_deadband_rad = 0.01
+waypoint_tolerance_m = 0.5
+via_tolerance_m = 1.0          # pass-through radius for route corners
+waypoint_speed_tolerance_m_s = 0.05
+heading_tolerance_rad = 0.03
+
+[recovery]
+# Fault monitor: observed vs. predicted velocity change over a sliding window.
+monitor_window_s = 3.0
+monitor_threshold_m_s = 0.08
+monitor_persistence = 3          # consecutive controller ticks over threshold
+max_investigations = 3           # further anomalies after this -> ABORT
+# Diagnostics: brake, settle, then pulse each thruster alone.
+brake_speed_m_s = 0.03
+brake_timeout_s = 20.0
+diag_settle_s = 1.5
+diag_pulse_s = 3.0
+diag_average_s = 1.0             # velocity averaged over this window before/after
+diag_min_expected_dv_m_s = 0.2   # braking evidence needed before judging a thruster
+passive_failed_ratio = 0.1       # braking evidence below this marks a thruster failed
+usable_effectiveness = 0.2       # below this a thruster is treated as failed
+healthy_effectiveness = 0.85     # at or above this it is treated as nominal
+# Recovery flight.
+transit_max_speed_m_s = 0.3
+approach_max_speed_m_s = 0.1
+align_tolerance_rad = 0.1        # final approach: turn to dock heading before moving
+pair_heading_accel_m_s2 = 0.01   # degraded: re-aim thruster pair only above this demand
+pair_reaim_rad = 0.3             # ... and only when the demand is this far off the pair axis
+pair_gate_rad = 0.45             # no thrust while the pair axis is further off than this
+predock_distance_m = 0.8         # degraded docking: stop here on the dock axis first
+predock_axial_tolerance_m = 0.15
+predock_lateral_tolerance_m = 0.05
+predock_axial_speed_m_s = 0.02
+predock_lateral_speed_m_s = 0.004
+predock_settle_s = 3.0           # pre-dock conditions must hold this long
+nav_average_samples = 15         # averaging window for pre-dock and drift checks (3 s)
+approach_lateral_limit_m = 0.2   # degraded final approach: back out beyond this
+max_dock_retries = 3             # then fall back to HOLD
+hold_tolerance_m = 1.0
+hold_confirm_s = 20.0
+# Planner fuel check.
+fuel_margin = 2.0
+fuel_reserve_kg = 0.1
+
+[docking]
+max_distance_m = 0.25
+max_relative_speed_m_s = 0.05
+max_alignment_error_rad = 0.05
+max_position_uncertainty_m = 0.1
+max_velocity_uncertainty_m_s = 0.03
+max_observation_age_s = 0.5
+confirm_duration_s = 2.0       # all criteria must hold continuously this long
