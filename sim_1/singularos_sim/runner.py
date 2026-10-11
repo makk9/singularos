@@ -17,7 +17,9 @@ happened, but the outcome records it.
 Truth fault events (impact, thruster fault) are logged under truth.events.
 Controller events (anomaly, diagnostics, plan) are logged under
 controller.events. The run ends when the controller reaches a final outcome
-(DOCKED, HOLD, ABORT) or max_duration_s (NOT_DOCKED).
+(DOCKED, HOLD, ABORT) or max_duration_s (NOT_DOCKED). After HOLD or ABORT the
+run continues for scenario.post_outcome_observe_s (HOLD keeps station-keeping,
+ABORT drifts unpowered) so the log shows what that outcome leads to.
 
 Output directory contents:
   config.json  - resolved scenario config including the seed used
@@ -81,6 +83,9 @@ def run_scenario(config, out_dir=None):
     first_collision = None
     truth_events, controller_events = [], []
 
+    observe_steps = int(round(scenario["post_outcome_observe_s"] / dt))
+    outcome_step = None
+    hold_deviation = 0.0
     command = Command.idle()
     pending = []
     step = 0
@@ -129,7 +134,16 @@ def run_scenario(config, out_dir=None):
                     controller_events.extend(events)
             log.write(json.dumps(record) + "\n")
 
-            if controller.finished or step >= max_steps:
+            if controller.finished and outcome_step is None:
+                outcome_step = step
+            if outcome_step is not None and controller.final == "HOLD":
+                hp = controller.legs[controller.leg_index].target
+                hold_deviation = max(hold_deviation, math.hypot(vehicle.state.x_m - hp[0], vehicle.state.y_m - hp[1]))
+            if outcome_step is not None and (
+                controller.final == "DOCKED" or step - outcome_step >= observe_steps
+            ):
+                break
+            if step >= max_steps:
                 break
             vehicle.step(command)
             step += 1
@@ -164,6 +178,11 @@ def run_scenario(config, out_dir=None):
         "anomaly_detected_t": anomaly["t"] if anomaly else None,
         "detection_latency_s": anomaly["t"] - impact["t"] if anomaly and impact else None,
         "investigations": controller.investigations,
+        "outcome_t": None if outcome_step is None else outcome_step * dt,
+        "post_outcome_observed_s": 0.0 if outcome_step is None else (step - outcome_step) * dt,
+        # Truth: farthest the vehicle got from the hold point while holding.
+        "hold_max_deviation_m": hold_deviation if controller.final == "HOLD" else None,
+        "final_position_m": [final.x_m, final.y_m],
         "plan": next((e for e in reversed(controller_events) if e["type"] == "plan"), None),
         # Evaluation only: compare the controller's estimates with truth.
         "health_estimate_vs_truth": {

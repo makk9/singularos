@@ -8,6 +8,13 @@ seed = 1
 sim_dt_s = 0.05             # fixed physics timestep
 controller_period_s = 0.2   # controller cadence (multiple of sim_dt_s)
 max_duration_s = 1800.0     # run ends NOT_DOCKED if exceeded
+post_outcome_observe_s = 300.0  # keep simulating this long after HOLD/ABORT
+
+[orbit]
+# The station is on a circular low Earth orbit. Frame axes: +x radial (away
+# from Earth), +y along-track (direction of orbital motion). Relative motion
+# follows the Clohessy-Wiltshire equations.
+period_s = 5554.0           # ~92.6 min, similar to the ISS (~420 km altitude)
 
 [initial_state]
 # Vehicle starts latched at the dock (origin), at rest, nose toward the station.
@@ -232,6 +239,7 @@ predock_settle_s = 3.0           # pre-dock conditions must hold this long
 nav_average_samples = 15         # averaging window for pre-dock and drift checks (3 s)
 approach_lateral_limit_m = 0.2   # degraded final approach: back out beyond this
 max_dock_retries = 3             # then fall back to HOLD
+abort_brake_timeout_s = 60.0     # ABORT: brake this long at most, then thrusters off
 hold_tolerance_m = 1.0
 hold_confirm_s = 20.0
 # Planner fuel check.

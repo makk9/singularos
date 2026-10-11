@@ -134,19 +134,21 @@ def test_route_through_station_is_reported_as_collision(nominal_config, tmp_path
 # ---------------------------------------------------------------- milestone 2
 
 SCENARIOS = Path(__file__).resolve().parent.parent / "scenarios"
+FAULT_SCENARIOS = ("thruster_fault", "thruster_degraded", "thruster_fault_infeasible",
+                   "thruster_fault_two_lateral", "thruster_fault_two_axial", "thruster_fault_abort")
 
 
 @pytest.fixture(scope="module")
 def fault_runs(tmp_path_factory):
     runs = {}
-    for name in ("thruster_fault", "thruster_degraded", "thruster_fault_infeasible"):
+    for name in FAULT_SCENARIOS:
         config = load_config(SCENARIOS / f"{name}.toml")
         out = tmp_path_factory.mktemp(name)
         runs[name] = (config, run_scenario(config, out), read_log(out))
     return runs
 
 
-@pytest.mark.parametrize("name", ["thruster_fault", "thruster_degraded", "thruster_fault_infeasible"])
+@pytest.mark.parametrize("name", FAULT_SCENARIOS)
 def test_fault_scenario_reaches_expected_outcome_safely(fault_runs, name):
     config, summary, _ = fault_runs[name]
     assert summary["outcome"] == config["scenario"]["expected_outcome"]
@@ -155,7 +157,7 @@ def test_fault_scenario_reaches_expected_outcome_safely(fault_runs, name):
         assert summary["truth_docking_check"]["pass"]
 
 
-@pytest.mark.parametrize("name", ["thruster_fault", "thruster_degraded", "thruster_fault_infeasible"])
+@pytest.mark.parametrize("name", FAULT_SCENARIOS)
 def test_fault_is_detected_quickly_and_diagnosed(fault_runs, name):
     _, summary, _ = fault_runs[name]
     assert summary["detection_latency_s"] is not None and summary["detection_latency_s"] <= 2.0
@@ -221,5 +223,53 @@ def test_planner_decisions(nominal_config):
     assert decide({"left": 0.0}) == "RETURN"
     assert decide({"forward": 0.4}) == "RETURN"
     assert decide({"backward": 0.0}) == "HOLD"
+    assert decide({"forward": 0.0, "backward": 0.0}) == "HOLD"  # left/right pair can hold
+    assert decide({"left": 0.0, "right": 0.0}) == "RETURN"
     assert decide({}, fuel=0.12) == "HOLD"
     assert decide({"left": 0.0, "right": 0.0, "backward": 0.0}) == "ABORT"
+
+
+
+# ------------------------------------------------------- orbital relative motion
+
+
+def test_unpowered_truth_matches_analytic_cw_solution(nominal_config):
+    from singularos_sim.dynamics import Command, Vehicle
+    from singularos_sim.orbit import free_drift, mean_motion
+
+    config = with_seed(nominal_config, None)
+    x0, y0, vx0, vy0 = 20.0, -5.0, 0.01, -0.02
+    config["initial_state"].update(x_m=x0, y_m=y0, vx_m_s=vx0, vy_m_s=vy0)
+    vehicle = Vehicle(config)
+    dt = config["scenario"]["sim_dt_s"]
+    steps = int(round(1200.0 / dt))
+    for _ in range(steps):
+        vehicle.step(Command.idle())
+    n = mean_motion(config["orbit"]["period_s"])
+    x, y, vx, vy = free_drift(n, x0, y0, vx0, vy0, steps * dt)
+    s = vehicle.state
+    assert math.hypot(s.x_m - x, s.y_m - y) < 0.05
+    assert math.hypot(s.vx_m_s - vx, s.vy_m_s - vy) < 1e-4
+    # Orbital motion is not negligible over this time: the craft moved metres.
+    assert math.hypot(x - x0, y - y0) > 5.0
+
+
+def test_hold_keeps_station_against_orbital_drift(fault_runs):
+    _, summary, _ = fault_runs["thruster_fault_infeasible"]
+    assert summary["post_outcome_observed_s"] >= 299.0
+    assert summary["hold_max_deviation_m"] < 1.0
+
+
+def test_abort_brakes_to_safe_then_shuts_down(fault_runs, nominal_config):
+    _, summary, log = fault_runs["thruster_fault_abort"]
+    assert summary["plan"]["decision"] == "ABORT"
+    events = [(r["t"], e) for r in log if "controller" in r for e in r["controller"].get("events", [])]
+    t_safe, safe = next((t, e) for t, e in events if e["type"] == "abort_safe")
+    assert safe["braked"] and safe["speed_m_s"] <= nominal_config["recovery"]["brake_speed_m_s"]
+    at_abort = next(r["truth"] for r in log if r["t"] >= summary["outcome_t"])
+    assert math.hypot(at_abort["vx_m_s"], at_abort["vy_m_s"]) > 0.1  # it really had to brake
+    after = [r for r in log if r["t"] > t_safe]
+    assert after and all(not any(r["truth"]["thrust_n"].values()) for r in after[2:])
+    # Unpowered afterwards: orbital motion still moves it.
+    start, end = after[0]["truth"], after[-1]["truth"]
+    assert math.hypot(end["x_m"] - start["x_m"], end["y_m"] - start["y_m"]) > 1.0

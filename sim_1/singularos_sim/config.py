@@ -51,6 +51,7 @@ def load_config(path):
     config = _load_raw(path)
     config.setdefault("faults", [])
     config["scenario"].setdefault("expected_outcome", "DOCKED")
+    config["scenario"].setdefault("post_outcome_observe_s", 0.0)
     validate_config(config)
     return config
 
@@ -91,6 +92,8 @@ def validate_config(config):
     for c in config["station"]["components"]:
         if not all(lo < hi for lo, hi in zip(c["min_m"], c["max_m"])):
             raise ValueError(f"station component {c['name']}: min_m must be below max_m")
+    if config["orbit"]["period_s"] <= 0:
+        raise ValueError("orbit.period_s must be positive")
     if config["scenario"]["expected_outcome"] not in OUTCOMES:
         raise ValueError(f"scenario.expected_outcome must be one of {OUTCOMES}")
     for i, fault in enumerate(config["faults"]):
@@ -129,6 +132,8 @@ def controller_spec(config):
         "max_thrust_n": {name: vehicle["thrusters"][name]["max_thrust_n"] for name in THRUSTER_NAMES},
         "fuel_rate_kg_s": {name: vehicle["thrusters"][name]["fuel_rate_kg_s"] for name in THRUSTER_NAMES},
         "rotation_fuel_kg_per_rad_s": vehicle["attitude"]["fuel_per_rate_change_kg_per_rad_s"],
+        # The station's orbit is public knowledge, not vehicle truth.
+        "orbit_period_s": config["orbit"]["period_s"],
     }
 
 

@@ -49,7 +49,13 @@ Fault response (MISSION.md section 8 modes; DEPART/INSPECT are NORMAL):
     the axis beyond approach_lateral_limit_m it backs out to the pre-dock
     point and retries, up to max_dock_retries, then falls back to HOLD.
   HOLD: station-keep at the nearest loop point; declared once stable for
-    recovery.hold_confirm_s. ABORT: thrusters off.
+    recovery.hold_confirm_s. ABORT: make safe, then shut down: turn the best
+    remaining thruster against the current velocity and brake to (near) rest,
+    bounded by abort_brake_timeout_s, then thrusters off.
+
+Orbital relative motion: the station's orbit is known (controller_spec), so
+guidance cancels the predicted Clohessy-Wiltshire acceleration and commands
+only the difference, and the fault monitor includes it in its prediction.
 
 The route comes from config and is assumed collision-free; the controller
 does no obstacle avoidance. Inspection is a pose and hold only: no imaging
@@ -67,6 +73,7 @@ from dataclasses import dataclass
 from . import planner
 from .config import THRUSTER_DIRECTIONS, THRUSTER_NAMES
 from .dynamics import Command, wrap_angle
+from .orbit import mean_motion, natural_accel
 
 FINAL_PHASES = ("DOCKED", "HOLD", "ABORT")
 
@@ -89,6 +96,7 @@ class Controller:
         self.params = params
         self.docking = docking
         self.recovery = recovery
+        self.n = mean_motion(spec["orbit_period_s"])
         self.staging = tuple(mission["staging_point_m"])
         self.dock_heading = mission["dock_heading_rad"]
         transit = params["transit_max_speed_m_s"]
@@ -128,6 +136,9 @@ class Controller:
         self._monitor_reset()
         self.pair_heading = None
         self.stable_since = None
+        self.abort_braking = False
+        self.abort_started = None
+        self.abort_thruster = None
         self.dock_retries = 0
         self.precise_since = None
         self.nav_history = deque(maxlen=recovery["nav_average_samples"])
@@ -182,7 +193,7 @@ class Controller:
         self.last_docking_check = None
         self.last_residual = None
 
-        if self.final:
+        if self.final == "DOCKED" or (self.final == "ABORT" and not self.abort_braking):
             return Command.idle()
         nav = self.latest.get("navigation")
         att = self.latest.get("attitude_sensor")
@@ -191,7 +202,9 @@ class Controller:
         v = nav.value
         self.nav_history.append((v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"]))
 
-        if self.diag is None and self._monitor_check(t, nav):
+        if self.final == "ABORT":
+            return self._abort_brake(t, nav, att)
+        if self.diag is None and not self.final and self._monitor_check(t, nav):
             self._start_investigation(t, att)
             if self.final:
                 return Command.idle()
@@ -229,10 +242,11 @@ class Controller:
                 self.final = "DOCKED"
                 return Command.idle()
         elif leg.phase == "HOLD":
-            if self._hold_stable(t, leg, nav):
+            # Once established, HOLD keeps station-keeping: under orbital
+            # motion an unpowered craft drifts away from the hold point.
+            if self.final != "HOLD" and self._hold_stable(t, leg, nav):
                 self.final = "HOLD"
                 self.events.append({"t": t, "type": "hold_established", "point_m": list(leg.target)})
-                return Command.idle()
         elif self._arrived(leg, nav, att):
             if leg.hold_s > 0 and self.hold_started_at is None:
                 self.hold_started_at = t
@@ -376,6 +390,9 @@ class Controller:
                 self.stable_since = t
             return t - self.stable_since >= self.recovery["hold_confirm_s"] - 1e-9
         self.stable_since = None
+        self.abort_braking = False
+        self.abort_started = None
+        self.abort_thruster = None
         return False
 
     # ------------------------------------------------------------- allocation
@@ -406,7 +423,10 @@ class Controller:
                 math.sqrt(2.0 * p["braking_accel_fraction"] * max_accel * dist),
             )
             vdx, vdy = (ex / dist * speed_cmd, ey / dist * speed_cmd) if dist > 0 else (0.0, 0.0)
-        return p["velocity_gain_1_s"] * (vdx - v["vx_m_s"]), p["velocity_gain_1_s"] * (vdy - v["vy_m_s"])
+        # Command only what orbital motion will not provide by itself.
+        nx, ny = natural_accel(self.n, v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"])
+        return (p["velocity_gain_1_s"] * (vdx - v["vx_m_s"]) - nx,
+                p["velocity_gain_1_s"] * (vdy - v["vy_m_s"]) - ny)
 
     def _allocate(self, ax, ay, att):
         """Map a world acceleration to throttles of usable thrusters, scaling
@@ -458,7 +478,9 @@ class Controller:
 
     def _monitor_record(self, t, nav, att, command):
         v = nav.value
-        self.history.append((t, (v["vx_m_s"], v["vy_m_s"]), self._predicted_accel(att, command)))
+        ax, ay = self._predicted_accel(att, command)
+        nx, ny = natural_accel(self.n, v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"])
+        self.history.append((t, (v["vx_m_s"], v["vy_m_s"]), (ax + nx, ay + ny)))
         window = self.recovery["monitor_window_s"]
         while self.history and self.history[0][0] < t - window - 1e-9:
             self.history.popleft()
@@ -489,7 +511,7 @@ class Controller:
 
     def _start_investigation(self, t, att):
         if self.investigations >= self.recovery["max_investigations"]:
-            self.final = "ABORT"
+            self._start_abort(t)
             self.events.append({"t": t, "type": "abort", "reason": "anomaly persists after max_investigations"})
             return
         self.investigations += 1
@@ -532,9 +554,17 @@ class Controller:
             self._passive_check(t, nav, att)
             speed = math.hypot(nav.value["vx_m_s"], nav.value["vy_m_s"])
             if speed <= r["brake_speed_m_s"] or elapsed >= r["brake_timeout_s"]:
-                d.update(stage="settle", start=t, samples=[])
+                # Hold the heading braking ended at, so test pulses fire from a
+                # steady attitude rather than while turning back.
+                d.update(stage="settle", start=t, samples=[], heading=att.value["heading_rad"])
                 d["queue"] = [n for n in d["queue"] if n not in d["results"]]
             else:
+                if self._degraded() and not self._has_pair() and self._usable():
+                    # No opposing pair left: brake by aiming a single thruster.
+                    command = self._single_thruster_brake(nav, att)
+                    d["prev"] = ((nav.value["vx_m_s"], nav.value["vy_m_s"]), att.value["heading_rad"],
+                                 command.throttle, t)
+                    return command
                 ax, ay = self._guidance(None, 0.0, nav)
                 throttle = self._allocate(ax, ay, att)
                 if self._degraded():
@@ -685,12 +715,66 @@ class Controller:
             self.leg_index = 0
             assessment["hold_point_m"] = list(hold)
         else:
-            self.final = "ABORT"
+            self._start_abort(t)
         assessment["return_points_m"] = [list(p) for p in points]
         self.events.append({"t": t, "type": "plan", **assessment})
-        if self.final:
-            return Command.idle()
+        if self.final == "ABORT":
+            return self._abort_brake(t, nav, att)
         return self._fly_legs(t, nav, att)
+
+    # ------------------------------------------------------------------- abort
+
+    def _start_abort(self, t):
+        self.final = "ABORT"
+        self.diag = None
+        self.abort_braking = True
+        self.abort_started = t
+        self.abort_thruster = None
+
+    def _abort_brake(self, t, nav, att):
+        """Make safe before shutting down: turn one usable thruster against
+        the velocity and brake. A single thruster is enough because the
+        vehicle turns to aim it; thrust only while it points the right way."""
+        r = self.recovery
+        v = nav.value
+        speed = math.hypot(v["vx_m_s"], v["vy_m_s"])
+        usable_set = self._usable()
+        done = speed <= r["brake_speed_m_s"] or t - self.abort_started >= r["abort_brake_timeout_s"]
+        if done or not usable_set:
+            self.abort_braking = False
+            self.events.append({"t": t, "type": "abort_safe", "speed_m_s": speed,
+                                "braked": bool(usable_set), "thrusters_off": True})
+            return Command.idle()
+        return self._single_thruster_brake(nav, att)
+
+    def _has_pair(self):
+        usable_set = self._usable()
+        return any(a in usable_set and b in usable_set for a, b in planner.PAIRS)
+
+    def _single_thruster_brake(self, nav, att):
+        """Null velocity with no intact opposing pair: turn one usable thruster
+        to face the needed push and fire it only while it points the right way."""
+        r = self.recovery
+        usable_set = self._usable()
+        ax, ay = self._guidance(None, 0.0, nav)
+        demand = math.atan2(ay, ax)
+        h = att.value["heading_rad"]
+        if self.abort_thruster not in usable_set:
+            self.abort_thruster = None
+        if self.abort_thruster is None:
+            # Pick the usable thruster needing the smallest turn to face the demand.
+            def turn(name):
+                dx, dy = THRUSTER_DIRECTIONS[name]
+                return abs(wrap_angle(demand - math.atan2(dy, dx) - h))
+            self.abort_thruster = min(sorted(usable_set, key=THRUSTER_NAMES.index), key=turn)
+        dx, dy = THRUSTER_DIRECTIONS[self.abort_thruster]
+        heading = wrap_angle(demand - math.atan2(dy, dx))
+        throttle = self._idle()
+        if abs(wrap_angle(heading - h)) <= r["pair_gate_rad"]:
+            force = math.hypot(ax, ay) * self._mass_estimate()
+            name = self.abort_thruster
+            throttle[name] = min(force / (self.spec["max_thrust_n"][name] * self.health[name]), 1.0)
+        return Command(throttle, self._rate_command(heading, att))
 
     def _previous_point(self, leg_index):
         leg = self.legs[leg_index]

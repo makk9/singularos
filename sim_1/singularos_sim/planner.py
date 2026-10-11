@@ -11,8 +11,9 @@ Baseline capability (documented for MISSION.md section 11 comparisons):
     lost axial thruster.
   - Transit with one lateral or axial thruster lost is handled by rotating so
     an intact opposing pair is aligned with the direction of travel.
-  - HOLD (station-keeping at a safe point) requires at least three usable
-    thrusters including at least one intact opposing pair.
+  - HOLD (station-keeping at a safe point) requires at least one intact
+    opposing pair (forward/backward or left/right): turning that pair toward
+    each push it needs reaches any direction, as the degraded transit does.
   - Fuel: the return must fit within observed fuel minus a reserve, with a
     safety margin on the estimate.
 """
@@ -79,12 +80,12 @@ def assess_recovery(spec, health, fuel_kg, mass, return_legs, params, current_sp
 
     if dock_ok:
         decision = "RETURN"
-    elif len(usable_set) >= 3 and has_pair and fuel_kg > p["fuel_reserve_kg"]:
+    elif has_pair and fuel_kg > p["fuel_reserve_kg"]:
         decision = "HOLD"
-        reasons.append("hold feasible: >=3 usable thrusters with an intact opposing pair, fuel above reserve")
+        reasons.append("hold feasible: an intact opposing thruster pair and fuel above reserve")
     else:
         decision = "ABORT"
-        reasons.append("hold infeasible: needs >=3 usable thrusters with an intact opposing pair and fuel above reserve")
+        reasons.append("hold infeasible: needs an intact opposing thruster pair and fuel above reserve")
 
     return {
         "decision": decision,

@@ -20,11 +20,25 @@ and the controller's event log next to truth vs. observed state.*
 
 ## Physics scope
 
-The model is 2D local-proximity dynamics in a station-centred frame with the
-dock at the origin, in SI units. **Orbital mechanics is deliberately omitted:**
-there is no gravity, no orbital relative motion (e.g. Clohessy-Wiltshire terms)
-and no drag. The only forces are the vehicle's own body-frame thrusters and, in
-fault scenarios, a configured particle impact.
+The model is 2D proximity dynamics in a station-centred frame with the dock at
+the origin, in SI units. The station is on a circular low Earth orbit
+(`[orbit] period_s`, default 5554 s, similar to the ISS) and the frame moves
+with it:
+
+- **+x is radial, away from Earth; +y is along-track, the direction of
+  orbital motion.** The dock approach from +x is an approach from above
+  (R-bar).
+- Relative motion follows the linearised **Clohessy-Wiltshire (Hill)
+  equations**, in-plane only:
+  `x'' = 3n²x + 2n·y' + aₓ`, `y'' = -2n·x' + a_y`, with `n = 2π / period`.
+  An unpowered craft does not stay put: it drifts and curves relative to the
+  station, so holding position costs fuel.
+- Not modelled: out-of-plane motion, orbit eccentricity, drag, J2 and other
+  perturbations, the frame's own rotation in the attitude model (one turn per
+  orbit, about 0.065°/s), and gravity-gradient torque. The linearisation is
+  accurate for distances of metres to kilometres from the station.
+- Applied forces are the vehicle's own body-frame thrusters and, in fault
+  scenarios, a configured particle impact.
 
 - Truth state: position, velocity, heading, angular rate, fuel.
 - Four body-frame thrusters (forward, backward, left, right) that rotate with the
@@ -77,6 +91,9 @@ onsets are logged as truth events.
 ## Recovery (baseline controller, `[recovery]` parameters)
 
 Modes follow MISSION.md section 8. DEPART and INSPECT are NORMAL operation.
+The station's orbit is known to the controller: its guidance cancels the
+predicted orbital acceleration and commands only the difference, and the fault
+monitor includes orbital motion in its prediction.
 
 1. **Fault monitor.** Every controller tick, the velocity change observed by
    navigation over `monitor_window_s` is compared with the change predicted
@@ -99,7 +116,14 @@ Modes follow MISSION.md section 8. DEPART and INSPECT are NORMAL operation.
    makes a short final approach, backing out to retry if it drifts off the
    axis.
 5. **HOLD** station-keeps at the nearest loop point and is declared once
-   stable for `hold_confirm_s`. **ABORT** turns thrusters off.
+   stable for `hold_confirm_s`; it keeps station-keeping afterwards, since
+   orbital motion would otherwise carry the craft away. **ABORT** makes safe
+   before shutting down: it turns the best remaining thruster against the
+   current velocity and brakes to near rest (at most `abort_brake_timeout_s`),
+   then turns thrusters off. If no opposing pair is left during INVESTIGATE,
+   braking uses the same single-thruster aiming. After HOLD or ABORT the run continues for
+   `scenario.post_outcome_observe_s` (default 300 s) so the log shows whether
+   the hold is maintained, or where the unpowered craft drifts.
 
 ### Baseline capabilities (for comparison with later agents)
 
@@ -109,8 +133,9 @@ Modes follow MISSION.md section 8. DEPART and INSPECT are NORMAL operation.
   estimated return fuel, times `fuel_margin`, fits within observed fuel minus
   `fuel_reserve_kg`. It has no procedure for docking without an axial
   thruster; that case falls back to HOLD.
-- HOLD requires at least three usable thrusters including an intact opposing
-  pair, and fuel above the reserve.
+- HOLD requires an intact opposing thruster pair (forward/backward or
+  left/right) and fuel above the reserve; the pair is turned toward each push
+  it needs.
 - No obstacle avoidance; routes come from config.
 
 ## Scenarios
@@ -121,6 +146,9 @@ Modes follow MISSION.md section 8. DEPART and INSPECT are NORMAL operation.
 | `thruster_fault.toml` | impact at t=160 s, left thruster dead | DOCKED |
 | `thruster_degraded.toml` | impact at t=160 s, forward thruster at 40% | DOCKED |
 | `thruster_fault_infeasible.toml` | impact at t=160 s, backward thruster dead | HOLD |
+| `thruster_fault_two_lateral.toml` | impact at t=160 s, left and right thrusters dead | DOCKED |
+| `thruster_fault_two_axial.toml` | impact at t=160 s, forward and backward thrusters dead | HOLD |
+| `thruster_fault_abort.toml` | impact at t=160 s, forward, backward and left thrusters dead | ABORT |
 
 Fault scenarios start with `extends = "nominal.toml"` and override only what
 differs: tables merge key by key, arrays replace. `config.json` in each run
