@@ -61,3 +61,7 @@ coverage/
 .cache/
 tmp/
 *.tmp
+
+# Personal/internal notes (not for public repo)
+*.internal.md
+/notes/
