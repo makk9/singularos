@@ -12,11 +12,12 @@ It implements build-order steps 1 and 2:
    returns and docks with the surviving thrusters or falls back to HOLD when
    docking is infeasible.
 
-![Replay of the thruster_fault scenario: after a particle impact behind the north solar array, the controller diagnoses a dead left thruster, skips the remaining inspections and returns to dock](docs/replay-thruster-fault.png)
+![Replay of the thruster_fault_abort scenario: after a particle impact disables three thrusters, the controller diagnoses them, brakes with the remaining thruster and stops safely; the side panel shows relative navigation and system health](docs/replay-health-panel.png)
 
-*Replay of `scenarios/thruster_fault.toml` (seed 1) during the return: impact
-and anomaly markers, the recovery path (yellow dashes), skipped inspections,
-and the controller's event log next to truth vs. observed state.*
+*Replay of `scenarios/thruster_fault_abort.toml` (seed 1) just after the ABORT
+decision: the scenario picker, the coordinate tag on the vehicle, relative
+navigation (truth vs. navigation estimate), the thruster schematics and the
+system-health table comparing truth with the controller's belief.*
 
 ## Physics scope
 
@@ -200,7 +201,13 @@ cd sim_1
 
 ```sh
 .venv/bin/python -m singularos_sim scenarios/thruster_fault.toml
+.venv/bin/python -m singularos_sim --all              # every scenario, one seed
+.venv/bin/python -m singularos_sim --all --seed 7
 ```
+
+`--all` runs every valid scenario in `scenarios/` with the same seed, prints a
+one-line result per scenario, and links the replays: each replay's header has
+a scenario picker to switch between them.
 
 The command prints the outcome (`DOCKED`, `HOLD`, `ABORT` or `NOT_DOCKED`) and
 the scenario's expected outcome, any injected faults, when the anomaly was
@@ -240,11 +247,31 @@ being inspected. The side panel has the inspection checklist, truth vs.
 observed state, station clearance, the docking check, thruster output and a
 dock close-up.
 
-In fault runs the replay also shows the particle impact, where the anomaly was
-detected, the recovery path or hold point, a red mark on the vehicle at the
-failed thruster, each thruster's true health next to the controller's estimate,
-inspections skipped because of the recovery, and an event log separating truth
-events (hidden from the controller) from controller detections and decisions.
+The side panel is laid out like an operations console:
+
+- **Status strip:** current mode, mission elapsed time, and a master alarm
+  (NOMINAL / CAUTION / WARNING) driven by what the controller knows.
+- **Relative navigation (LVLH):** range and range rate to the dock port,
+  R-bar (radial) and V-bar (along-track) position and rates, heading, fuel,
+  station clearance and navigation-fix age, with truth next to the navigation
+  estimate. The map shows the same R-bar/V-bar axes and a live coordinate tag
+  beside the vehicle.
+- **Thruster schematic:** two top-view diagrams, what each thruster actually
+  delivers (truth) and what the controller commands and believes. A thruster
+  commanded but delivering nothing is visible at a glance.
+- **System health:** one row per component (thrusters, attitude control,
+  sensors, fault monitor, recovery plan) with a TRUTH column and a CONTROLLER
+  BELIEF column. Thrusters read NOMINAL, DEGRADED, FAILED or UNVERIFIED (assumed
+  OK, not yet tested) and say how they were verified. Sensors show availability,
+  data age and stated uncertainty. Rows where belief differs from truth are
+  highlighted, and a "truth view" line counts faults the controller does not
+  know about yet.
+- **Event log**, then collapsible sections for the docking check, inspection
+  plan, navigation state, dock close-up and legend.
+
+In fault runs the map also shows the particle impact, where the anomaly was
+detected, the recovery path or hold point, and a red mark on the vehicle at the
+failed thruster.
 
 Playback has play/pause, speed, a timeline scrubber and a phase bar. `?t=SECONDS` in the URL
 opens the replay at that time. To rebuild the page for an existing run:
