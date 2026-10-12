@@ -1,5 +1,14 @@
 # SingularOS
 
+![An inspection craft loses a thruster near the station; an AI copilot proposes a recovery plan, a validator accepts it, and the craft docks](docs/media/copilot-docking-demo.gif)
+
+*Live run in the [SingularityReturnHome](SingularityReturnHome/README.md)
+simulator: a particle impact disables the inspection craft's left thruster.
+Onboard fault management diagnoses the loss, a local LLM copilot proposes a
+recovery plan that respects a station speed advisory, a deterministic validator
+accepts it, and the craft returns and docks. Condensed from a recording at 20×
+speed.*
+
 A stylized 3D demonstration of an autonomous spacecraft returning to Earth. The
 mission discovers available hardware, establishes a position from celestial
 observations, plans a trajectory, and returns without a ground link.
@@ -28,6 +37,11 @@ a paused view; playback can be started explicitly.
 `sim_1/` contains a headless Python 2D simulator for the mission defined in
 [MISSION.md](MISSION.md). See [sim_1/README.md](sim_1/README.md) for setup, run and
 test commands.
+
+`SingularityReturnHome/` is the active simulator: thruster faults and
+diagnosis, orbital relative motion, an AI copilot whose plans pass a
+deterministic validator before they are flown, and a browser launcher that
+plays runs live. See [SingularityReturnHome/README.md](SingularityReturnHome/README.md).
 
 ## Verification and deployment
 
