@@ -74,6 +74,16 @@ def load_schema(name="recovery-proposal"):
 
 def schema_problems(value, schema, path="proposal"):
     """Check value against the subset of JSON Schema the proposal schema uses."""
+    if "anyOf" in schema:
+        # Valid if any alternative matches; otherwise report the closest one.
+        # Alternatives whose const fields match (e.g. the step's action) come first.
+        def matches(sub):
+            props = sub.get("properties", {})
+            return isinstance(value, dict) and all(value.get(k) == p["const"] for k, p in props.items() if "const" in p)
+        options = [(not matches(sub), schema_problems(value, sub, path)) for sub in schema["anyOf"]]
+        if any(not o for _, o in options):
+            return []
+        return min(options, key=lambda o: (o[0], len(o[1])))[1]
     problems = []
     if "const" in schema and value != schema["const"]:
         problems.append(f"{path} must be {schema['const']!r}")

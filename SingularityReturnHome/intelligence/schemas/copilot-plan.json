@@ -5,33 +5,191 @@
   "description": "A multi-step recovery plan proposed by the AI copilot. The copilot proposes only; the deterministic plan validator checks every step before the controller may execute it (MISSION.md section 7).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "assessment", "decision", "steps", "advisories_considered", "rationale"],
+  "required": [
+    "schema_version",
+    "assessment",
+    "decision",
+    "steps",
+    "advisories_considered",
+    "rationale"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {
+      "const": 1
+    },
     "assessment": {
       "description": "What happened and what still works, in the copilot's own words, citing evidence.",
-      "type": "string", "minLength": 1, "maxLength": 500
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
     },
-    "decision": {"enum": ["DOCK", "HOLD", "ABORT"]},
+    "decision": {
+      "enum": [
+        "DOCK",
+        "HOLD",
+        "ABORT"
+      ]
+    },
     "steps": {
-      "type": "array", "minItems": 1, "maxItems": 6,
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["action"],
-        "properties": {
-          "action": {"enum": ["RETURN_TO_STAGING", "GOTO", "PREDOCK_STOP", "COAST_IN", "FINAL_APPROACH", "HOLD_AT", "SAFE_STOP"]},
-          "x_m": {"type": "number", "minimum": -200, "maximum": 200},
-          "y_m": {"type": "number", "minimum": -200, "maximum": 200},
-          "speed_m_s": {"type": "number", "minimum": 0, "maximum": 0.5}
-        }
+        "anyOf": [
+          {
+            "description": "Fly the pre-planned loop to the staging point. No parameters.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "const": "RETURN_TO_STAGING"
+              }
+            }
+          },
+          {
+            "description": "Straight line to a point, then stop.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "x_m",
+              "y_m"
+            ],
+            "properties": {
+              "action": {
+                "const": "GOTO"
+              },
+              "x_m": {
+                "type": "number",
+                "minimum": -200,
+                "maximum": 200
+              },
+              "y_m": {
+                "type": "number",
+                "minimum": -200,
+                "maximum": 200
+              },
+              "speed_m_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              }
+            }
+          },
+          {
+            "description": "Staging to the pre-dock point; speed_m_s must respect any approach speed cap.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "speed_m_s"
+            ],
+            "properties": {
+              "action": {
+                "const": "PREDOCK_STOP"
+              },
+              "speed_m_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              }
+            }
+          },
+          {
+            "description": "Unpowered docking from the pre-dock point.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "speed_m_s"
+            ],
+            "properties": {
+              "action": {
+                "const": "COAST_IN"
+              },
+              "speed_m_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              }
+            }
+          },
+          {
+            "description": "Powered approach into the dock; speed_m_s must respect any approach speed cap.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "speed_m_s"
+            ],
+            "properties": {
+              "action": {
+                "const": "FINAL_APPROACH"
+              },
+              "speed_m_s": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 0.5
+              }
+            }
+          },
+          {
+            "description": "Straight line to a safe point, then keep station there.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "x_m",
+              "y_m"
+            ],
+            "properties": {
+              "action": {
+                "const": "HOLD_AT"
+              },
+              "x_m": {
+                "type": "number",
+                "minimum": -200,
+                "maximum": 200
+              },
+              "y_m": {
+                "type": "number",
+                "minimum": -200,
+                "maximum": 200
+              }
+            }
+          },
+          {
+            "description": "Brake and shut down. No parameters.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "const": "SAFE_STOP"
+              }
+            }
+          }
+        ]
       }
     },
     "advisories_considered": {
       "description": "Ids of the station advisories this plan follows.",
-      "type": "array", "maxItems": 6,
-      "items": {"type": "string", "maxLength": 40}
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "string",
+        "maxLength": 40
+      }
     },
-    "rationale": {"type": "string", "minLength": 1, "maxLength": 500}
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    }
   }
 }

@@ -77,6 +77,13 @@ def context_text(ctx, fmt="report"):
     return "\n".join(lines)
 
 
+def decision_problem(problem):
+    """True if a validator problem calls the decision itself into question
+    (wrong final step, dock closed, wrong abort, fuel), not just the steps."""
+    return (problem.startswith(("decision ", "ABORT plan", "SAFE_STOP chosen", "plan needs"))
+            or "docking not allowed" in problem)
+
+
 class CopilotAgent:
     """LLM-backed copilot. Call propose(); raises CopilotError on failure."""
 
@@ -87,6 +94,7 @@ class CopilotAgent:
             raise ValueError(f"input_format must be one of {INPUT_FORMATS}")
         self.client = client or LLMClient()
         self.input_format = input_format
+        self.model = self.client.config.model
         self.schema = load_schema()
         self.manual = load_manual()
 
@@ -98,10 +106,13 @@ class CopilotAgent:
         ]
         for k, (plan, problems) in enumerate(history):
             repeat = k > 0 and plan["steps"] == history[k - 1][0]["steps"] and plan["decision"] == history[k - 1][0]["decision"]
+            keep = ("" if any(decision_problem(p) for p in problems) else
+                    f". These problems are in the steps, not the decision: keep decision {plan['decision']} and "
+                    "change only the steps or values named")
             messages.append({"role": "assistant", "content": json.dumps(plan)})
             messages.append({"role": "user", "content": "The validator REJECTED that plan: " + "; ".join(problems)
                              + (". You repeated the previous rejected plan unchanged; change the steps or values the "
-                                "validator named" if repeat else "") + ". Fix these problems and propose again."})
+                                "validator named" if repeat else "") + keep + ". Fix these problems and propose again."})
         start = time.monotonic()
         try:
             content = self.client.chat(messages, self.schema)
@@ -127,6 +138,7 @@ class ScriptedCopilot:
     plans in order (the last one repeats)."""
 
     name = "scripted"
+    model = "scripted"
 
     def __init__(self, plans, input_format="report"):
         self.plans = list(plans)

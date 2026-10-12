@@ -102,6 +102,7 @@ a bounded angular rate.
 
 import math
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from . import anomaly_report, plan_validator, planner
@@ -127,7 +128,7 @@ class Leg:
 
 class Controller:
     def __init__(self, spec, mission, params, docking, recovery, orbital=None, advisor=None, copilot=None,
-                 station=None):
+                 station=None, copilot_async=False):
         self.spec = spec
         self.params = params
         self.docking = docking
@@ -137,6 +138,11 @@ class Controller:
         self.safe_orbit = None  # active safe-orbit burn
         self.advisor = advisor
         self.copilot = copilot
+        # copilot_async: ask the copilot in the background and hold position
+        # while it thinks, so simulated time keeps running (live mode).
+        self.copilot_async = copilot_async
+        self.pending = None
+        self._executor = None
         self.station = station or []
         self.advisories = []  # station messages received so far
         self.authority = "baseline"
@@ -202,7 +208,7 @@ class Controller:
             return self.final
         if self.safe_orbit is not None:
             return "HOLD"
-        if self.diag is not None:
+        if self.diag is not None or self.pending is not None:
             return "INVESTIGATE"
         return self.legs[self.leg_index].phase
 
@@ -222,6 +228,8 @@ class Controller:
             return "safe orbit"
         if self.safe_orbit is not None:
             return "safe orbit burn"
+        if self.pending is not None:
+            return "awaiting copilot"
         if self.final or self.diag is not None:
             return ""
         return self.legs[self.leg_index].name
@@ -267,6 +275,8 @@ class Controller:
             return self._abort_brake(t, nav, att)
         if self.safe_orbit is not None:
             return self._safe_orbit_burn(t, nav, att)
+        if self.pending is not None:
+            return self._poll_copilot(t, nav, att)
         if self.diag is None and not self.final and self._monitor_check(t, nav):
             triage = self._orbital_triage(t, nav)
             decision = triage["decision"] if triage else None
@@ -887,10 +897,17 @@ class Controller:
         self.criteria_met_since = None
 
         if self.copilot is not None and not approach:
+            if self.copilot_async:
+                return self._start_async_copilot(t, nav, att, assessment, points, leg_index, fuel_kg)
             command = self._consult_copilot(t, nav, att, assessment, points, fuel_kg)
             if command is not None:
                 return command
+        return self._apply_baseline(t, nav, att, assessment, points, approach, leg_index, fuel_kg)
 
+    def _apply_baseline(self, t, nav, att, assessment, points, approach, leg_index, fuel_kg):
+        """Fly the baseline's recovery decision (RETURN, HOLD or ABORT)."""
+        r = self.recovery
+        far_speed = self.orbital["far_transit_speed_m_s"]
         transit = r["transit_max_speed_m_s"]
         decision = assessment["decision"]
         if decision == "RETURN":
@@ -986,7 +1003,8 @@ class Controller:
             t, events, self.health, self.health_verified, self.recovery["usable_effectiveness"],
             v, (u["x_m"], u["vx_m_s"]), t - nav.timestamp, att.value, att.uncertainty["heading_rad"],
             trend, proximity, fuel_kg, fuel.uncertainty["fuel_kg"] if fuel else None,
-            self.recovery["fuel_reserve_kg"], self.advisories)
+            self.recovery["fuel_reserve_kg"], self.advisories,
+            planning=plan_validator.planning_facts(self._validator_context(nav, [], fuel_kg)))
 
     def _validator_context(self, nav, points, fuel_kg):
         v = nav.value
@@ -1043,6 +1061,72 @@ class Controller:
         self._set_authority(t, "baseline", "no accepted copilot plan; baseline plan used")
         return None
 
+    def _start_async_copilot(self, t, nav, att, baseline, points, leg_index, fuel_kg):
+        """Ask the copilot in the background; hold position until it answers."""
+        ctx = self._copilot_context(t, nav, fuel_kg)
+        self.events.append({"t": t, "type": "baseline_assessment", "decision": baseline["decision"],
+                            "reasons": baseline["reasons"]})
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1)
+        self.pending = {"baseline": baseline, "points": points, "leg_index": leg_index, "ctx": ctx,
+                        "history": [], "attempt": 1, "hold": (nav.value["x_m"], nav.value["y_m"]),
+                        "heading": att.value["heading_rad"], "asked_at": t,
+                        "future": self._executor.submit(self.copilot.propose, ctx, [])}
+        self.events.append({"t": t, "type": "copilot_request", "attempt": 1})
+        return self._hold_while_waiting(nav, att)
+
+    def _hold_while_waiting(self, nav, att):
+        """Station-keep at the point where the copilot was asked."""
+        p = self.pending
+        ax, ay = self._guidance(p["hold"], self.recovery["approach_max_speed_m_s"], nav)
+        if self._degraded():
+            heading = self._pair_heading(ax, ay, att)
+            throttle = self._allocate(ax, ay, att) if self._pair_aligned(ax, ay, att) else self._idle()
+        else:
+            heading, throttle = p["heading"], self._allocate(ax, ay, att)
+        return Command(throttle, self._rate_command(heading, att))
+
+    def _poll_copilot(self, t, nav, att):
+        p = self.pending
+        if not p["future"].done():
+            return self._hold_while_waiting(nav, att)
+        fuel = self.latest.get("fuel_monitor")
+        fuel_kg = fuel.value["fuel_kg"] if fuel else 0.0
+        attempt = p["attempt"]
+        try:
+            plan, latency = p["future"].result()
+        except Exception as e:  # a copilot failure must not stop the controller
+            self.events.append({"t": t, "type": "copilot_error", "attempt": attempt, "error": f"{type(e).__name__}: {e}"})
+            return self._copilot_fallback(t, nav, att, fuel_kg)
+        verdict = plan_validator.validate_plan(plan, self._validator_context(nav, p["points"], fuel_kg))
+        self.events.append({"t": t, "type": "copilot_proposal", "attempt": attempt, "agent": self.copilot.name,
+                            "latency_s": round(latency, 2), "plan": plan, "sim_wait_s": round(t - p["asked_at"], 1)})
+        self.events.append({"t": t, "type": "copilot_verdict", "attempt": attempt, **verdict})
+        if verdict["accepted"]:
+            self.pending = None
+            self._set_authority(t, "copilot", f"plan accepted on attempt {attempt}")
+            return self._adopt_plan(t, nav, att, plan, p["points"], verdict)
+        p["history"].append((plan, verdict["problems"]))
+        if attempt < self.recovery["copilot_max_attempts"]:
+            p["attempt"] = attempt + 1
+            p["asked_at"] = t
+            p["future"] = self._executor.submit(self.copilot.propose, p["ctx"], list(p["history"]))
+            self.events.append({"t": t, "type": "copilot_request", "attempt": attempt + 1})
+            return self._hold_while_waiting(nav, att)
+        return self._copilot_fallback(t, nav, att, fuel_kg)
+
+    def _copilot_fallback(self, t, nav, att, fuel_kg):
+        p, self.pending = self.pending, None
+        baseline = p["baseline"]
+        if self.advisories and baseline["decision"] == "RETURN":
+            self._set_authority(t, "baseline", "no accepted copilot plan while station advisories are active; "
+                                               "holding at a safe point")
+            baseline["decision"] = "HOLD"
+            baseline["reasons"] = list(baseline["reasons"]) + ["copilot plan not accepted under active advisories: hold"]
+        else:
+            self._set_authority(t, "baseline", "no accepted copilot plan; baseline plan used")
+        return self._apply_baseline(t, nav, att, baseline, p["points"], None, p["leg_index"], fuel_kg)
+
     def _adopt_plan(self, t, nav, att, plan, points, verdict):
         r = self.recovery
         h = self.dock_heading
@@ -1079,7 +1163,7 @@ class Controller:
             elif a == "HOLD_AT":
                 legs.append(Leg("HOLD", (step["x_m"], step["y_m"]), h, transit, name="hold point"))
         decision = {"DOCK": "RETURN", "HOLD": "HOLD", "ABORT": "ABORT"}[plan["decision"]]
-        event = {"t": t, "type": "plan", "source": "copilot", "decision": decision,
+        event = {"t": t, "type": "plan", "by": "copilot", "decision": decision,
                  "reasons": [plan["rationale"]], "return_points_m": [p for p in verdict["path_m"][1:]],
                  "fuel_needed_kg": verdict["fuel_needed_kg"]}
         if plan["decision"] == "HOLD":

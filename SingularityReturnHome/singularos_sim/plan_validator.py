@@ -14,7 +14,8 @@ Checks (each reported by name, with the problems found):
   capability      FINAL_APPROACH needs forward and backward; PREDOCK_STOP,
                   COAST_IN, GOTO, HOLD_AT need an intact opposing pair
   speed_limits    COAST_IN between coast_min and the docking speed limit
-                  times coast_margin; GOTO/FINAL_APPROACH speeds in range
+                  times coast_margin; GOTO/PREDOCK_STOP/FINAL_APPROACH
+                  speeds in range
   advisories      dock-closed forbids docking; approach-speed limits apply
                   to FINAL_APPROACH and COAST_IN speeds; keep-out zones
   clearance       straight segments (GOTO, HOLD_AT, PREDOCK_STOP) stay
@@ -145,9 +146,9 @@ def validate_plan(plan, ctx):
             elif not r["coast_min_speed_m_s"] <= v <= hi:
                 checks["speed_limits"].append(
                     f"step {i + 1} COAST_IN speed {v:.3f} m/s outside {r['coast_min_speed_m_s']:.3f}-{hi:.3f} m/s")
-        if a == "FINAL_APPROACH" and v is not None and not 0.005 <= v <= r["approach_max_speed_m_s"]:
+        if a in ("FINAL_APPROACH", "PREDOCK_STOP") and v is not None and not 0.005 <= v <= r["approach_max_speed_m_s"]:
             checks["speed_limits"].append(
-                f"step {i + 1} FINAL_APPROACH speed {v:.3f} m/s outside 0.005-{r['approach_max_speed_m_s']} m/s")
+                f"step {i + 1} {a} speed {v:.3f} m/s outside 0.005-{r['approach_max_speed_m_s']} m/s")
         if a == "GOTO" and v is not None and not 0.01 <= v <= r["transit_max_speed_m_s"]:
             checks["speed_limits"].append(
                 f"step {i + 1} GOTO speed {v:.3f} m/s outside 0.01-{r['transit_max_speed_m_s']} m/s")
@@ -216,3 +217,70 @@ def validate_plan(plan, ctx):
         "fuel_needed_kg": fuel_needed,
         "path_m": [list(p) for p, _, _ in path],
     }
+
+
+def planning_facts(ctx):
+    """Facts for the copilot, derived with the same rules this validator
+    applies: which steps the current thruster set and advisories allow,
+    whether a straight line to the staging point clears the station, and any
+    advisory speed cap. Inputs are the validator context (controller-side
+    only), so the facts add no information the validator does not use."""
+    usable = set(ctx["usable"])
+    has_pair = any(a in usable and b in usable for a, b in planner.PAIRS)
+    axial = {"forward", "backward"} <= usable
+    adv = ctx.get("constraints", [])
+    closed = [c["advisory"] for c in adv if c["type"] == "dock_closed"]
+    unavailable = {}
+    if not has_pair:
+        for a in ("RETURN_TO_STAGING", "GOTO", "PREDOCK_STOP", "COAST_IN", "FINAL_APPROACH", "HOLD_AT"):
+            unavailable[a] = "needs an intact opposing thruster pair"
+    else:
+        unavailable["SAFE_STOP"] = "an opposing pair remains, so HOLD is possible"
+        if not axial:
+            lost = [n for n in ("forward", "backward") if n not in usable]
+            unavailable["FINAL_APPROACH"] = f"needs forward and backward; unusable: {', '.join(lost)}"
+    for a in ("COAST_IN", "FINAL_APPROACH"):
+        if closed:
+            unavailable.setdefault(a, f"advisory {', '.join(closed)} closes the dock")
+    steps = ("RETURN_TO_STAGING", "GOTO", "PREDOCK_STOP", "COAST_IN", "FINAL_APPROACH", "HOLD_AT", "SAFE_STOP")
+
+    here, staging = tuple(ctx["position_m"]), tuple(ctx["staging_m"])
+    blocked_by, closest = None, math.inf
+    for c in ctx["station"]:
+        if c["type"] == "docking_port":
+            continue
+        d = _segment_box_distance(here, staging, c["min_m"], c["max_m"], corridor=DOCK_CORRIDOR_M)
+        if d < closest:
+            closest, nearest = d, c["name"]
+    min_clear = ctx["recovery"]["copilot_min_clearance_m"]
+    if closest < min_clear:
+        blocked_by = nearest
+    for c in adv:
+        if c["type"] == "keep_out" and _segment_box_distance(here, staging, c["min_m"], c["max_m"]) <= 0.0:
+            blocked_by = blocked_by or f"keep-out zone {c.get('label', c['advisory'])}"
+
+    available = [a for a in steps if a not in unavailable]
+    # FINAL_APPROACH is preferred: powered, it holds the dock axis, whereas a
+    # coast cannot correct sideways orbital drift.
+    via = [a for a in ("FINAL_APPROACH", "COAST_IN") if a in available and "PREDOCK_STOP" in available]
+    facts = {
+        "available_steps": available,
+        "docking": {"possible": bool(via), "via": via, "preferred": via[0] if via else None},
+        "unavailable_steps": unavailable,
+        "straight_line_to_staging": {
+            "staging_m": [round(staging[0], 2), round(staging[1], 2)],
+            "clear": blocked_by is None,
+            "blocked_by": blocked_by,
+            "closest_structure_m": round(closest, 2),
+            "min_clearance_m": min_clear,
+        },
+        "dock_closed_by": closed,
+    }
+    caps = [c for c in adv if c["type"] == "max_approach_speed"]
+    if caps:
+        cap = min(caps, key=lambda c: c["value_m_s"])
+        facts["approach_speed_cap"] = {
+            "max_m_s": cap["value_m_s"], "within_m": max(c["within_m"] for c in caps), "advisory": cap["advisory"],
+            "applies_to": ["PREDOCK_STOP", "COAST_IN", "FINAL_APPROACH"],
+        }
+    return facts

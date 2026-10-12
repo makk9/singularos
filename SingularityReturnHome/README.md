@@ -112,6 +112,42 @@ orbit-scale recovery.
 incident summaries. Tests run against an in-process fake Ollama server; set
 `SINGULAROS_LLM_INTEGRATION=1` to also test the configured live server.
 
+## Scenario launcher
+
+```sh
+ollama serve                              # for AI copilot runs
+.venv/bin/python -m telemetry.api         # then open http://127.0.0.1:8000
+```
+
+Pick a scenario, tick **AI copilot (LLM)** or leave it off for the baseline,
+choose a seed and a live speed, and press **Run & play**. The run is **live**:
+the server simulates it in the background, paced to the chosen speed, and
+streams it to the replay as it happens (a red LIVE badge shows while it runs).
+When the AI copilot is asked for a plan, the craft holds position and
+simulated time runs at real speed, so the wait you see is the model's real
+thinking time; proposals and the validator's verdicts appear as they happen.
+Every live run is saved (`runs/<scenario>[-copilot]-seed<N>-r<k>`) and replays
+like any other run afterwards. **Runs: N** plays N live runs one after another.
+**Cancel** stops the live run at once, even while the AI copilot is thinking,
+and skips any remaining runs; the unfinished run is discarded
+(`/api/live/cancel?id=<session>`).
+
+**Track overlay** (replay footer, in replays opened through the launcher):
+a dropdown listing the other runs of the same scenario, filtered by scope
+(this seed or all seeds) and mode (baseline or AI copilot), with Select all
+and Clear. Each selected run is drawn as a coloured track with a "ghost"
+marker showing where that run was at the current time; a legend on the map
+gives each run's outcome and the time it first diverged from this run by more
+than 1 m (click to jump there). `?overlay=all` pre-selects every other run.
+
+**History** slides over the replay and shows every run of the selected
+scenario, seed and mode (or all seeds): pass rate, number of distinct
+trajectories (repeated baseline runs are identical), outcome spread, the
+copilot's first proposals, accepted plans and rejection reasons, LLM time,
+all paths overlaid, and a list to replay any run. The URL can pre-fill the
+form: `?scenario=NAME&copilot=1&seed=N&history=1`. `python -m telemetry.api
+PORT` serves on another port.
+
 ## AI copilot
 
 With `--copilot`, the LLM does more than advise: at the recovery decision it
@@ -122,8 +158,12 @@ asserts feasibility (MISSION.md section 7).
 1. After the fault is detected and diagnosed, the controller sends the copilot
    its evidence: diagnosed thruster health, observed position, velocity and
    fuel, and the text of any station advisories, together with the vehicle
-   manual (`intelligence/manual/vehicle-manual.md`). It does not send the
-   baseline's own decision, and never truth.
+   manual (`intelligence/manual/vehicle-manual.md`). The report also carries
+   planning facts computed with the validator's own rules
+   (`plan_validator.planning_facts`): the steps the diagnosed thrusters and
+   advisories allow, whether the straight line to staging clears the station,
+   and any approach speed cap with the steps it applies to. It does not send
+   the baseline's own decision, and never truth.
 2. The copilot replies with a plan matching
    `intelligence/schemas/copilot-plan.json`: an assessment, a decision (DOCK,
    HOLD, ABORT), steps from a fixed library (RETURN_TO_STAGING, GOTO,
@@ -132,7 +172,8 @@ asserts feasibility (MISSION.md section 7).
 3. `singularos_sim/plan_validator.py` checks structure, prerequisites,
    thruster capability, speed limits, advisories, station clearance and fuel.
    A rejected plan's problems go back to the copilot, up to
-   `recovery.copilot_max_attempts`.
+   `recovery.copilot_max_attempts`. When the problems concern only the steps,
+   the feedback tells it to keep its decision.
 4. An accepted plan is flown and the copilot holds actuator authority. With no
    accepted plan, an error, or no reachable model, the baseline plan is used.
    If the copilot's plan exhausts its docking retries, authority returns to

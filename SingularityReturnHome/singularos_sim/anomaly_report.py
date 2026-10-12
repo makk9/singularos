@@ -4,9 +4,11 @@ Generated automatically by the controller at the recovery decision point,
 from the same controller-side data the deterministic planner uses: alerts
 raised, diagnostic results and how each was obtained, the navigation and
 attitude estimates with their stated uncertainty and age, a short recent
-trend, proximity to the dock and the station structure, fuel, and the raw
-text of station messages. No truth, no fault labels, and no baseline
-decision.
+trend, proximity to the dock and the station structure, fuel, the raw
+text of station messages, and planning facts derived with the plan
+validator's own rules (steps the thruster set and advisories allow, whether
+the straight line to staging clears the station, any approach speed cap).
+No truth, no fault labels, and no baseline decision.
 
 Values are numbers with units in the field names; a single header line
 states the frame. The report is compact JSON so it stays short and the model
@@ -45,7 +47,7 @@ def _alerts(events):
 
 
 def build_report(t, events, health, verified, usable_threshold, nav, nav_sigma, nav_age_s, att, att_sigma,
-                 trend, proximity, fuel_kg, fuel_sigma_kg, reserve_kg, advisories):
+                 trend, proximity, fuel_kg, fuel_sigma_kg, reserve_kg, advisories, planning=None):
     """Return the report as a dict (see module docstring)."""
     methods = {"brake": "braking_response", "pulse": "test_firing", None: "untested"}
     speed = math.hypot(nav["vx_m_s"], nav["vy_m_s"])
@@ -69,6 +71,7 @@ def build_report(t, events, health, verified, usable_threshold, nav, nav_sigma, 
         "proximity": proximity,
         "fuel": {"kg": round(fuel_kg, 3), "reserve_kg": reserve_kg, "sigma_kg": fuel_sigma_kg},
         "station_messages": [{"id": a["id"], "t_s": a["t_s"], "text": a["text"]} for a in advisories],
+        **({"planning": planning} if planning is not None else {}),
     }
 
 
@@ -89,7 +92,36 @@ def key_facts(report):
         f"speed {report['nav']['speed_m_s']} m/s, {p['dock_range_m']} m from the dock",
         f"active station messages: {len(report['station_messages'])}",
     ]
-    return "KEY FACTS: " + "; ".join(parts) + "."
+    lines = ["KEY FACTS: " + "; ".join(parts) + "."]
+    pl = report.get("planning")
+    if pl:
+        lines.append("AVAILABLE STEPS: " + ", ".join(pl["available_steps"]) + ".")
+        dk = pl.get("docking")
+        if dk:
+            if dk["possible"]:
+                lines.append(f"DOCKING: possible with the diagnosed thrusters via {dk['preferred']}"
+                             + (f" (preferred over {', '.join(dk['via'][1:])})" if len(dk["via"]) > 1 else "")
+                             + "; subject to the validator's fuel check. Decision DOCK is expected.")
+            elif pl["dock_closed_by"]:
+                lines.append(f"DOCKING: not allowed (dock closed by {', '.join(pl['dock_closed_by'])}).")
+            else:
+                lines.append("DOCKING: not possible with the diagnosed thrusters.")
+        if pl["unavailable_steps"]:
+            lines.append("UNAVAILABLE STEPS: " + "; ".join(f"{a} ({why})" for a, why in pl["unavailable_steps"].items()) + ".")
+        line = pl["straight_line_to_staging"]
+        sx, sy = line["staging_m"]
+        if line["clear"]:
+            lines.append(f"ROUTE: the straight line from here to staging ({sx:g}, {sy:g}) clears the station "
+                         f"(closest structure {line['closest_structure_m']} m); GOTO or HOLD_AT there is allowed.")
+        else:
+            lines.append(f"ROUTE: the straight line from here to staging ({sx:g}, {sy:g}) is BLOCKED by "
+                         f"{line['blocked_by']}; start with RETURN_TO_STAGING (the safe loop), not a straight GOTO or HOLD_AT.")
+        cap = pl.get("approach_speed_cap")
+        if cap:
+            lines.append(f"SPEED CAP: {cap['max_m_s']:.3f} m/s within {cap['within_m']:g} m of the dock "
+                         f"(advisory {cap['advisory']}); speed_m_s of every {', '.join(cap['applies_to'])} step "
+                         f"must be at most {cap['max_m_s']:.3f}.")
+    return "\n".join(lines)
 
 
 def report_text(report):

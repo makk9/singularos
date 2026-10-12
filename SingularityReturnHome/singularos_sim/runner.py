@@ -63,7 +63,7 @@ def truth_docking_check(state, config):
     }
 
 
-def run_scenario(config, out_dir=None, advisor=None, copilot=None):
+def run_scenario(config, out_dir=None, advisor=None, copilot=None, observer=None, copilot_async=False):
     """Run one scenario. advisor: optional callable passed to the controller
     for LLM advice at decision points (logged only; see controller)."""
     scenario = config["scenario"]
@@ -81,7 +81,7 @@ def run_scenario(config, out_dir=None, advisor=None, copilot=None):
     sensors = build_sensors(config)
     controller = Controller(
         controller_spec(config), config["mission"], config["controller"], config["docking"], config["recovery"],
-        config["orbital"], advisor, copilot, config["station"]["components"],
+        config["orbital"], advisor, copilot, config["station"]["components"], copilot_async,
     )
     advisories = sorted(config.get("advisories", []), key=lambda a: a["t_s"])
     delivered = 0
@@ -176,6 +176,8 @@ def run_scenario(config, out_dir=None, advisor=None, copilot=None):
                     record["controller"]["events"] = events
                     controller_events.extend(events)
             log.write(json.dumps(record) + "\n")
+            if observer is not None:
+                observer(record, controller)  # live streaming and pacing
 
             if controller.finished and outcome_step is None:
                 outcome_step = step
@@ -213,6 +215,7 @@ def run_scenario(config, out_dir=None, advisor=None, copilot=None):
         "seed": scenario["seed"],
         "outcome": outcome,
         "mode": "copilot" if copilot is not None else "baseline",
+        "copilot_model": getattr(copilot, "model", None),
         "expected_outcome": scenario["expected_outcome_copilot" if copilot is not None else "expected_outcome"],
         "reason": reasons[outcome],
         "final_phase": controller.phase,

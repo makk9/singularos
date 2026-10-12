@@ -125,7 +125,8 @@ def test_copilot_prompt_has_evidence_but_not_baseline_decision_or_truth(tmp_path
     assert "STA-11" in text and "docking port A is CLOSED" in text
     if fmt == "report":
         assert text.splitlines()[1].startswith("KEY FACTS: failed thrusters: left")
-        report = json.loads(text.splitlines()[2])
+        report = json.loads(next(line for line in text.splitlines() if line.startswith("{")))
+        assert "UNAVAILABLE STEPS: " in text and "closes the dock" in text
         assert report["thrusters"]["left"]["status"] == "FAILED"
         assert {d["thruster"] for d in report["diagnostics"]} >= {"left", "forward", "backward", "right"}
         assert report["alerts"][0]["code"] == "PROPULSION_ANOMALY"
@@ -149,3 +150,93 @@ def test_validator_checks_goto_speed_inside_advisory_zone(vctx):
                      {"action": "PREDOCK_STOP", "speed_m_s": 0.02}, {"action": "COAST_IN", "speed_m_s": 0.02})
     v = validate_plan(plan, slow)
     assert any("GOTO" in p and "speed-limit zone" in p for p in v["problems"])
+
+
+def test_planning_facts_flag_blocked_route_unavailable_steps_and_speed_cap(vctx):
+    from singularos_sim.anomaly_report import key_facts
+    from singularos_sim.plan_validator import planning_facts
+    # Behind the north solar array, as after the thruster_fault impact: the
+    # straight line to staging is the GOTO the validator would reject.
+    behind = {**vctx, "position_m": (-10.0, 18.0),
+              "constraints": [{"type": "max_approach_speed", "value_m_s": 0.02, "within_m": 3.0, "advisory": "A2"}]}
+    facts = planning_facts(behind)
+    assert facts["straight_line_to_staging"]["blocked_by"] == "North solar array"
+    goto = step_plan("HOLD", {"action": "HOLD_AT", "x_m": 8.0, "y_m": 0.0})
+    assert validate_plan(goto, behind)["checks"]["clearance"] != "pass"
+    assert "FINAL_APPROACH" in facts["unavailable_steps"] and "COAST_IN" in facts["available_steps"]
+    assert facts["approach_speed_cap"]["max_m_s"] == 0.02
+    text = key_facts({"thrusters": {n: {"status": "FAILED" if n == "backward" else "NOMINAL", "health_pct": 0}
+                                    for n in ("forward", "backward", "left", "right")},
+                      "nav": {"speed_m_s": 0.0}, "proximity": {"dock_range_m": 20.6}, "station_messages": [],
+                      "planning": facts})
+    assert "BLOCKED by North solar array" in text and "SPEED CAP: 0.020" in text and "UNAVAILABLE STEPS: " in text
+    # From staging itself the line is clear, and the validator agrees.
+    assert planning_facts(vctx)["straight_line_to_staging"]["clear"]
+    assert validate_plan(goto, vctx)["checks"]["clearance"] == "pass"
+
+
+def test_planning_facts_dock_closed_and_no_pair(vctx):
+    from singularos_sim.plan_validator import planning_facts
+    closed = planning_facts({**vctx, "constraints": [{"type": "dock_closed", "advisory": "A1"}]})
+    assert {"COAST_IN", "FINAL_APPROACH"} <= set(closed["unavailable_steps"]) and closed["dock_closed_by"] == ["A1"]
+    lone = planning_facts({**vctx, "usable": {"forward"}})
+    assert lone["available_steps"] == ["SAFE_STOP"]
+
+
+def test_copilot_report_carries_planning_facts(tmp_path):
+    copilot = ScriptedCopilot(plans("advisory_speed"))
+    run("copilot_advisory_speed", copilot, tmp_path)
+    prompt = copilot.calls[0]["context"]
+    assert "ROUTE: " in prompt and "AVAILABLE STEPS: " in prompt and "SPEED CAP: 0.020" in prompt
+
+
+def test_retry_feedback_keeps_decision_unless_the_decision_is_at_fault():
+    from intelligence.copilot import CopilotAgent
+
+    class Client:
+        class config:
+            model = "fake"
+
+        def chat(self, messages, schema):
+            self.messages = messages
+            return json.dumps(step_plan("HOLD", {"action": "RETURN_TO_STAGING"}, {"action": "HOLD_AT", "x_m": 8.0, "y_m": 0.0}))
+
+    client = Client()
+    agent = CopilotAgent(client)
+    agent.input_format = "summary"
+    rejected = step_plan("HOLD", {"action": "HOLD_AT", "x_m": 8.0, "y_m": 0.0})
+    ctx = {"t": 1.0, "observed": {"x_m": 0, "y_m": 0, "vx_m_s": 0, "vy_m_s": 0, "fuel_kg": 1}, "distance_to_dock_m": 1,
+           "health_estimate": {"forward": 1.0}, "usable": ["forward"], "fuel_reserve_kg": 0.1, "advisories": []}
+    agent.propose(ctx, [(rejected, ["path to HOLD_AT (8.0, 0.0) passes 0.0 m from North solar array"])])
+    assert "keep decision HOLD" in client.messages[-1]["content"]
+    agent.propose(ctx, [(rejected, ["advisory A1 closes the dock: docking not allowed"])])
+    assert "keep decision" not in client.messages[-1]["content"]
+
+
+def test_plan_schema_allows_only_each_actions_own_parameters():
+    from intelligence.copilot import load_schema
+    from intelligence.harness import schema_problems
+    schema = load_schema()
+    for name in ("coast_in", "advisory_speed", "dock_closed"):
+        for plan in plans(name):
+            assert schema_problems(plan, schema) == [], name
+    # The shape seen in live runs: coordinates on PREDOCK_STOP instead of a speed.
+    bad = step_plan("DOCK", {"action": "RETURN_TO_STAGING"}, {"action": "PREDOCK_STOP", "x_m": 0.8, "y_m": 0.0},
+                    {"action": "FINAL_APPROACH", "speed_m_s": 0.02})
+    problems = schema_problems(bad, schema)
+    assert "proposal.steps[1].speed_m_s is required" in problems and "proposal.steps[1].x_m is not allowed" in problems
+
+
+def test_validator_range_checks_predock_speed(vctx):
+    v = validate_plan(step_plan("DOCK", {"action": "PREDOCK_STOP", "speed_m_s": 0.0}, {"action": "COAST_IN", "speed_m_s": 0.02}), vctx)
+    assert any("PREDOCK_STOP speed 0.000" in p for p in v["checks"]["speed_limits"])
+
+
+def test_planning_facts_docking_line(vctx):
+    from singularos_sim.plan_validator import planning_facts
+    lost_backward = planning_facts(vctx)["docking"]
+    assert lost_backward == {"possible": True, "via": ["COAST_IN"], "preferred": "COAST_IN"}
+    intact = planning_facts({**vctx, "usable": {"forward", "backward", "right"}})["docking"]
+    assert intact["preferred"] == "FINAL_APPROACH" and intact["via"] == ["FINAL_APPROACH", "COAST_IN"]
+    closed = planning_facts({**vctx, "constraints": [{"type": "dock_closed", "advisory": "A1"}]})["docking"]
+    assert not closed["possible"]

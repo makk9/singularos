@@ -109,11 +109,37 @@
   .cp-msg { border-left: 3px solid #4fa3e0; background: rgba(79,163,224,.08); padding: 4px 8px; margin: 4px 0; font-size: 12px; }
   .cp-msg b { color: #4fa3e0; font-size: 11px; }
   .cp-att { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 6px 0; font-size: 12px; }
+  .badge.live { background: rgba(248,81,73,.15); color: var(--bad); animation: pulse 1.6s infinite; }
+  .cp-att.thinking { border-color: rgba(227,179,65,.6); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .55; } }
   .cp-att.ok { border-color: rgba(63,185,80,.5); } .cp-att.bad { border-color: rgba(248,81,73,.5); }
   .cp-att .steps { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   .cp-att .steps i { color: var(--muted); font-style: normal; }
   .cp-att .why { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .cp-att .why.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+  .cp-att .why.clamp:hover { color: var(--text); }
   .cp-att ul { margin: 4px 0 0 16px; padding: 0; color: var(--bad); font-size: 11px; }
+  .ovl-wrap { position: relative; }
+  #ovl-btn { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+  #ovl-count { color: var(--obs); }
+  #ovl-pop { position: absolute; bottom: calc(100% + 8px); left: 0; width: 520px; z-index: 20; background: var(--panel);
+             border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 12px 30px rgba(0,0,0,.5); padding: 10px; }
+  .ovl-head { font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; margin-bottom: 8px; }
+  .ovl-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .ovl-filters button, .ovl-filters select { font-size: 12px; padding: 2px 7px; }
+  #ovl-list { max-height: 280px; overflow-y: auto; border-top: 1px solid var(--line); }
+  .ovl-row { display: grid; grid-template-columns: 18px 12px 112px 92px 1fr 58px; gap: 6px; align-items: center; padding: 4px 2px;
+             border-bottom: 1px solid #1b2129; font-size: 12px; cursor: pointer; }
+  .ovl-row:hover { background: #1b2129; }
+  .ovl-sw { width: 12px; height: 4px; border-radius: 2px; background: #30363d; }
+  .ovl-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .ovl-plan { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ovl-time { color: var(--muted); font-size: 10px; text-align: right; }
+  #ovl-legend { position: absolute; top: 10px; left: 10px; z-index: 5; background: rgba(13,17,23,.88); border: 1px solid var(--line);
+                border-radius: 4px; padding: 6px 8px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 45%; overflow-y: auto; }
+  #ovl-legend .lh { color: var(--muted); letter-spacing: .06em; font-weight: 700; margin-bottom: 4px; }
+  #ovl-legend .lr { display: grid; grid-template-columns: 14px 100px 74px auto; gap: 6px; align-items: center; margin: 2px 0; }
+  #ovl-legend .div { color: var(--obs); cursor: pointer; text-decoration: underline dotted; }
   details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 2px; }
   details > summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 6px 0; list-style: none; }
   details > summary::before { content: "\25B8"; display: inline-block; width: 14px; }
@@ -130,7 +156,7 @@
   <span class="note-right">2D orbital relative motion (nonlinear, two-body). Inspection is a pose and hold.</span>
 </header>
 <main>
-  <div id="world-wrap"><canvas id="world"></canvas></div>
+  <div id="world-wrap"><canvas id="world"></canvas><div id="ovl-legend" hidden></div></div>
   <aside>
     <div class="strip">
       <div class="phase-now" id="phase"></div>
@@ -207,6 +233,19 @@
         <option value="craft">Follow craft</option><option value="path">Whole path</option>
       </select>
     </label>
+    <div class="ovl-wrap" id="ovl-wrap" hidden>
+      <button id="ovl-btn" title="Overlay the tracks of other runs of this scenario">TRACK OVERLAY <span id="ovl-count"></span> &#9662;</button>
+      <div id="ovl-pop" hidden>
+        <div class="ovl-head">TRACK OVERLAY <span class="note" id="ovl-scen"></span></div>
+        <div class="ovl-filters">
+          <label class="note">Scope <select id="ovl-scope"><option value="seed">This seed</option><option value="all">All seeds</option></select></label>
+          <label class="note">Mode <select id="ovl-mode"><option value="all">All</option><option value="baseline">Baseline</option><option value="copilot">AI copilot</option></select></label>
+          <button id="ovl-all">Select all</button><button id="ovl-clear">Clear</button>
+        </div>
+        <div id="ovl-list"></div>
+        <div class="note" id="ovl-note"></div>
+      </div>
+    </div>
     <input type="range" id="scrub" min="0" step="0.001">
     <span class="clock" id="tlabel"></span>
   </div>
@@ -218,8 +257,8 @@
 <script>
 (() => {
   const D = JSON.parse(document.getElementById("data").textContent);
-  const F = D.frames, P = D.frame_period_s, N = F.length;
-  const tEnd = F[N - 1].t;
+  let F = D.frames, N = F.length, tEnd = N ? F[N - 1].t : 0;
+  const P = D.frame_period_s;
   const THR = ["forward", "backward", "left", "right"];
   const css = getComputedStyle(document.documentElement);
   const C = name => css.getPropertyValue("--" + name).trim();
@@ -229,25 +268,45 @@
 
   // Inspection stops and when each one was finished (last frame on that leg).
   const STOPS = D.mission.route.filter(r => r.kind === "inspect");
-  const firstInvestigate = F.findIndex(f => f.phase === "INVESTIGATE");
-  STOPS.forEach(stop => {
-    let lastIdx = -1;
-    F.forEach((f, k) => { if (f.leg === stop.name) lastIdx = k; });
-    const completed = D.summary.inspections_completed.includes(stop.name);
-    stop.doneAfter = completed ? lastIdx : Infinity;
-    stop.skippedAfter = !completed && firstInvestigate >= 0 ? firstInvestigate : Infinity;
-  });
+  let firstInvestigate = -1;
+  function deriveStops() {
+    firstInvestigate = F.findIndex(f => f.phase === "INVESTIGATE");
+    STOPS.forEach(stop => {
+      let lastIdx = -1;
+      F.forEach((f, k) => { if (f.leg === stop.name) lastIdx = k; });
+      // Finished run: the summary says which stops were completed. Live: a
+      // stop is complete once the craft has moved on, unless it was cut short
+      // by the fault investigation.
+      const completed = S.outcome !== "RUNNING" ? S.inspections_completed.includes(stop.name)
+        : lastIdx >= 0 && lastIdx < N - 1 && !(firstInvestigate >= 0 && lastIdx === firstInvestigate - 1);
+      stop.doneAfter = completed ? lastIdx : Infinity;
+      stop.skippedAfter = !completed && firstInvestigate >= 0 ? firstInvestigate : Infinity;
+    });
+  }
   const stopStatus = (stop, i) => i > stop.doneAfter ? "done" : i >= stop.skippedAfter ? "skipped"
     : (F[i].leg === stop.name ? "current" : "pending");
 
   // All events, flattened with the frame they appear in.
-  const EVENTS = F.flatMap((f, k) => f.events.map(e => ({ ...e, k })));
-  const impactEv = EVENTS.find(e => e.type === "impact");
-  const anomalyEv = EVENTS.find(e => e.type === "anomaly_detected");
-  const planEvs = EVENTS.filter(e => e.type === "plan");
+  let EVENTS = [], impactEv, anomalyEv, planEvs = [];
+  function deriveEvents() {
+    EVENTS = F.flatMap((f, k) => f.events.map(e => ({ ...e, k })));
+    impactEv = EVENTS.find(e => e.type === "impact");
+    anomalyEv = EVENTS.find(e => e.type === "anomaly_detected");
+    planEvs = EVENTS.filter(e => e.type === "plan");
+  }
 
   // Header
-  const S = D.summary;
+  let S = D.summary;
+  function drawHeader() {
+  if (S.outcome === "RUNNING") {
+    $("meta").textContent = `${S.mode === "copilot" ? "AI COPILOT \u00b7 " : ""}${S.scenario} \u00b7 seed ${S.seed} \u00b7 ${tEnd.toFixed(1)} s`;
+    const cancelled = D.live && D.live.cancelled;
+    $("outcome").textContent = cancelled ? "CANCELLED \u00b7 run discarded"
+      : `\u25cf LIVE \u00b7 ${D.live ? D.live.speed : ""}\u00d7 \u00b7 expected ${S.expected_outcome}`;
+    $("outcome").className = cancelled ? "badge" : "badge live";
+    $("collision").textContent = "";
+    return;
+  }
   $("meta").textContent = `${S.mode === "copilot" ? "AI COPILOT \u00b7 " : ""}${S.scenario} \u00b7 seed ${S.seed} \u00b7 ${S.sim_time_s.toFixed(1)} s \u00b7 fuel ${S.fuel_used_kg.toFixed(3)} kg`;
   const ok = S.outcome === "DOCKED" && S.truth_docking_check.pass;
   $("outcome").textContent = S.outcome + (S.outcome === "DOCKED" ? (S.truth_docking_check.pass ? " (truth confirmed)" : " (truth check FAILED)") : "");
@@ -257,6 +316,7 @@
   $("collision").innerHTML = `${S.inspections_completed.length}/${STOPS.length} inspected \u00b7 ` +
     (S.collision ? `<span style="color:var(--bad)">collision at ${S.collision.t.toFixed(1)} s (${S.collision.component})</span>`
                  : `no collisions \u00b7 min clearance ${S.min_clearance_in_flight.clearance_m.toFixed(2)} m`);
+  }
 
   // Scenario picker (present when the runs were generated together with --all).
   if (D.scenarios.length) {
@@ -268,14 +328,17 @@
   }
 
   // Phase timeline
-  const segs = [];
+  let segs = [];
   const stopNames = new Set(STOPS.map(s => s.name));
+  const tl = $("timeline");
+  function buildTimeline() {
+  segs = [];
   F.forEach(f => {
     const key = f.phase === "INSPECT" ? (stopNames.has(f.leg) ? f.leg : "transit") : f.phase;
     if (!segs.length || segs[segs.length - 1].key !== key) segs.push({ key, phase: f.phase, t0: f.t });
   });
   segs.forEach((s, i) => { s.t1 = i + 1 < segs.length ? segs[i + 1].t0 : tEnd; });
-  const tl = $("timeline");
+  tl.querySelectorAll("[data-seg]").forEach(el => el.remove());
   segs.forEach((s, i) => {
     const d = document.createElement("div");
     d.dataset.seg = i;
@@ -287,6 +350,7 @@
     d.title = `${s.phase === "INSPECT" ? "INSPECT: " + s.key : s.phase}: ${s.t0.toFixed(1)}-${s.t1.toFixed(1)} s`;
     tl.appendChild(d);
   });
+  }
   tl.addEventListener("click", e => {
     for (const el of tl.querySelectorAll("[data-seg]")) {
       const b = el.getBoundingClientRect();
@@ -329,6 +393,7 @@
 
   const scrub = $("scrub");
   scrub.max = tEnd;
+  let following = true;
   scrub.addEventListener("input", () => { t = +scrub.value; render(); });
   $("play").onclick = () => togglePlay();
   $("restart").onclick = () => { t = 0; render(); };
@@ -508,13 +573,16 @@
 
   // World bounds: path, waypoints and station.
   const M = D.mission;
-  let minx = -6, maxx = 2, miny = -4, maxy = 4;
-  for (const f of F) { minx = Math.min(minx, f.truth[0]); maxx = Math.max(maxx, f.truth[0]); miny = Math.min(miny, f.truth[1]); maxy = Math.max(maxy, f.truth[1]); }
   const pts = [M.staging_point_m, ...M.route.map(r => r.point_m), ...D.station.flatMap(c => [c.min_m, c.max_m])];
-  for (const p of pts) { minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]); }
-  const VMAX = Math.max(...F.map(f => Math.hypot(f.truth[2], f.truth[3])), 1e-6);
-  const pad = 0.08 * Math.max(maxx - minx, maxy - miny);
-  minx -= pad; maxx += pad; miny -= pad; maxy += pad;
+  let minx, maxx, miny, maxy, VMAX = 1e-6;
+  function deriveBounds() {
+    minx = -6; maxx = 2; miny = -4; maxy = 4;
+    for (const f of F) { minx = Math.min(minx, f.truth[0]); maxx = Math.max(maxx, f.truth[0]); miny = Math.min(miny, f.truth[1]); maxy = Math.max(maxy, f.truth[1]); }
+    for (const p of pts) { minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]); }
+    VMAX = Math.max(1e-6, ...F.map(f => Math.hypot(f.truth[2], f.truth[3])));
+    const pad = 0.08 * Math.max(maxx - minx, maxy - miny);
+    minx -= pad; maxx += pad; miny -= pad; maxy += pad;
+  }
 
   // Camera. Bounds are [minx, maxx, miny, maxy] in metres.
   //   station: station and route only (the close-up view)
@@ -615,6 +683,8 @@
     g.fillStyle = C("ok"); if (stationPixels(v) >= 160) g.fillText("Dock", v.X(0) + 8, v.Y(0) + 16);
 
 
+    drawOverlays(g, v, pose);
+
     // Full truth path faint, travelled part solid.
     g.lineWidth = 1; g.strokeStyle = "rgba(245,185,66,0.12)";
     g.beginPath(); F.forEach((f, k) => k ? g.lineTo(v.X(f.truth[0]), v.Y(f.truth[1])) : g.moveTo(v.X(f.truth[0]), v.Y(f.truth[1]))); g.stroke();
@@ -635,11 +705,11 @@
     // Recovery path from the latest plan made so far.
     const plan = planEvs.filter(e => e.k <= pose.i).pop();
     if (plan) {
-      const pts = plan.source === "copilot" ? plan.return_points_m
+      const pts = plan.by === "copilot" ? plan.return_points_m
         : plan.decision === "RETURN" ? [...plan.return_points_m, M.staging_point_m, [0, 0]]
         : plan.hold_point_m ? [plan.hold_point_m] : [];
       const start = F[plan.k].truth;
-      g.setLineDash([6, 4]); g.strokeStyle = plan.source === "copilot" ? C("obs") : "#e3b341"; g.lineWidth = plan.source === "copilot" ? 2 : 1.5;
+      g.setLineDash([6, 4]); g.strokeStyle = plan.by === "copilot" ? C("obs") : "#e3b341"; g.lineWidth = plan.by === "copilot" ? 2 : 1.5;
       g.beginPath(); g.moveTo(v.X(start[0]), v.Y(start[1]));
       for (const p of pts) g.lineTo(v.X(p[0]), v.Y(p[1]));
       g.stroke(); g.setLineDash([]);
@@ -772,6 +842,7 @@
       case "abort": return `ABORT: ${e.reason}`;
       case "advisory_received": return `Station message ${e.id}: ${e.text}`;
       case "baseline_assessment": return `Baseline would choose ${e.decision} (not shown to the copilot)`;
+      case "copilot_request": return `Asked the AI copilot for a plan (attempt ${e.attempt}); holding position while it thinks`;
       case "copilot_proposal": return `Copilot proposal ${e.attempt}: <b>${e.plan.decision}</b>: ${e.plan.steps.map(st => stepText(st)).join(" \u2192 ")}`;
       case "copilot_verdict": return e.accepted ? `Validator ACCEPTED proposal ${e.attempt}` : `Validator REJECTED proposal ${e.attempt}: ${e.problems.join("; ")}`;
       case "copilot_error": return `Copilot error: ${e.error}`;
@@ -844,8 +915,11 @@
     $("relnav").innerHTML = html;
   }
 
-  const COPILOT_EVS = EVENTS.filter(e => ["advisory_received", "copilot_proposal", "copilot_verdict", "copilot_error", "authority"].includes(e.type));
-  const HAS_COPILOT = S.mode === "copilot" || COPILOT_EVS.some(e => e.type === "advisory_received");
+  let COPILOT_EVS = [], HAS_COPILOT = false;
+  function deriveCopilot() {
+    COPILOT_EVS = EVENTS.filter(e => ["advisory_received", "copilot_request", "copilot_proposal", "copilot_verdict", "copilot_error", "authority"].includes(e.type));
+    HAS_COPILOT = S.mode === "copilot" || COPILOT_EVS.some(e => e.type === "advisory_received");
+  }
   const stepText = st => st.action + (st.speed_m_s != null ? ` ${(100 * st.speed_m_s).toFixed(1)} cm/s`
     : st.x_m != null ? ` (${st.x_m.toFixed(0)}, ${st.y_m.toFixed(0)})` : "");
   const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -865,20 +939,27 @@
     if (S.mode !== "copilot") html += `<div class="note">Baseline run: no copilot attached (run with --copilot).</div>`;
     else if (!props.length && !errs.length) html += `<div class="note">Standing by: the copilot is consulted when the recovery plan is made.</div>`;
     for (const p of props) {
-      const v = seen.find(e => e.type === "copilot_verdict" && e.attempt === p.attempt);
+      const v = seen.filter(e => e.type === "copilot_verdict" && e.attempt === p.attempt).pop();
       const ok = v && v.accepted;
       html += `<div class="cp-att ${v ? (ok ? "ok" : "bad") : ""}">`
         + `<div style="display:flex;justify-content:space-between"><span><b>Proposal ${p.attempt}</b> \u00b7 ${chip(p.plan.decision, p.plan.decision === "DOCK" ? "info" : p.plan.decision === "HOLD" ? "warn" : "bad")}</span>`
         + `<span>${v ? chip(ok ? "ACCEPTED" : "REJECTED", ok ? "ok" : "bad") : chip("CHECKING", "idle")}</span></div>`
         + `<div class="steps">${p.plan.steps.map(st => chip(stepText(st), "idle")).join("<i>\u2192</i>")}</div>`
-        + `<div class="why">${esc(p.plan.assessment)}</div>`
-        + `<div class="why">${esc(p.plan.rationale)}${p.plan.advisories_considered.length ? ` \u00b7 follows ${p.plan.advisories_considered.map(esc).join(", ")}` : ""}`
+        + `<div class="why clamp" title="Click to expand">${esc(p.plan.assessment)}</div>`
+        + `<div class="why clamp" title="Click to expand">${esc(p.plan.rationale)}${p.plan.advisories_considered.length ? ` \u00b7 follows ${p.plan.advisories_considered.map(esc).join(", ")}` : ""}`
         + ` \u00b7 ${p.agent}, ${p.latency_s.toFixed(1)} s</div>`
         + (v && !ok ? `<ul>${v.problems.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
         + `</div>`;
     }
     for (const e of errs) html += `<div class="cp-att bad">Copilot error: ${esc(e.error)}</div>`;
+    const req = seen.filter(e => e.type === "copilot_request").pop();
+    if (req && !seen.some(e => (e.type === "copilot_proposal" || e.type === "copilot_error") && e.attempt === req.attempt)) {
+      const waited = F[pose.i].t - req.t;
+      html += `<div class="cp-att thinking"><b>Proposal ${req.attempt}</b> \u00b7 ${chip("THINKING", "warn")}`
+        + `<div class="why">The AI is working on a plan: ${waited.toFixed(1)} s so far. The craft holds position meanwhile; simulated time keeps running at real speed.</div></div>`;
+    }
     $("cp-body").innerHTML = html;
+    $("cp-body").querySelectorAll(".why.clamp").forEach(el => el.addEventListener("click", () => el.classList.toggle("clamp")));
   }
 
   function drawHealth(pose) {
@@ -1035,6 +1116,13 @@
   }
 
   function render() {
+    if (!N) {
+      const { g, w, h } = setupCanvas($("world"));
+      g.fillStyle = "#8b949e"; g.font = "14px system-ui, sans-serif"; g.textAlign = "center";
+      g.fillText("Starting the simulation\u2026", w / 2, h / 2); g.textAlign = "left";
+      $("tlabel").textContent = "";
+      return;
+    }
     t = Math.max(0, Math.min(tEnd, t));
     const pose = poseAt(t);
     drawWorld(pose); drawInset(pose); drawPanel(pose);
@@ -1051,11 +1139,176 @@
     }
   }
   window.addEventListener("resize", render);
-  const qt = parseFloat(new URLSearchParams(location.search).get("t"));
-  if (Number.isFinite(qt)) t = qt;
-  render();
-  // ?autoplay=1 (used by the launcher's Run & play) starts playback on load.
-  if (new URLSearchParams(location.search).get("autoplay") === "1") togglePlay();
+
+  // ---------------------------------------------------------- track overlay
+  // Other runs of this scenario, drawn as coloured tracks with a "ghost"
+  // marker where each run was at the current time. Needs the launcher's
+  // server (/api/history, /api/path); hidden for replays opened from disk.
+  const OVL_COLORS = ["#a371f7", "#56d364", "#f778ba", "#ffa657", "#39c5bb", "#ff7b72", "#d2a8ff", "#7ee787",
+                      "#ffdf5d", "#79c0ff", "#ffa198", "#c9d1d9"];
+  const OVL_MAX = 24;
+  const ovl = { rows: [], sel: new Map(), paths: new Map(), next: 0 };
+  const ovlOn = location.protocol.startsWith("http");
+  const runLabel = r => {
+    const rest = r.run.startsWith(r.scenario + "-") ? r.run.slice(r.scenario.length + 1) : r.run;
+    const m = rest.match(/^(copilot-)?seed(\d+)(?:-r(\d+))?$/);
+    return m ? `${m[1] ? "AI" : "BL"} \u00b7 s${m[2]}${m[3] ? " \u00b7 r" + m[3] : ""}` : rest;
+  };
+  const shortPlan = r => r.final_plan ? r.final_plan.map(st => ({ RETURN_TO_STAGING: "RET", PREDOCK_STOP: "PRE", FINAL_APPROACH: "APP",
+    COAST_IN: "COAST", HOLD_AT: "HOLD", SAFE_STOP: "STOP", GOTO: "GOTO" }[st.action] || st.action)).join(">")
+    : (r.mode === "copilot" ? "baseline fallback" : "baseline " + (r.final_decision || ""));
+  const outcomeChip = o => chip(o, o === "DOCKED" ? "ok" : o === "HOLD" ? "warn" : o === "RUNNING" ? "idle" : "bad");
+
+  function pathAt(path, time) {
+    if (!path.length || time < path[0][0]) return null;
+    if (time >= path[path.length - 1][0]) return { x: path[path.length - 1][1], y: path[path.length - 1][2], ended: true };
+    let lo = 0, hi = path.length - 1;
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (path[mid][0] <= time) lo = mid; else hi = mid; }
+    const a = path[lo], b = path[hi], f = (time - a[0]) / (b[0] - a[0]);
+    return { x: a[1] + (b[1] - a[1]) * f, y: a[2] + (b[2] - a[2]) * f, ended: false };
+  }
+  function divergence(path) {
+    // First time the two runs are more than 1 m apart (sampled each second).
+    for (const [pt, x, y] of path) {
+      if (pt > tEnd) return null;
+      const f = F[Math.min(N - 1, Math.round(pt / P))];
+      if (f && Math.hypot(f.truth[0] - x, f.truth[1] - y) > 1.0) return pt;
+    }
+    return null;
+  }
+  async function ovlLoad() {
+    const q = new URLSearchParams({ scenario: S.scenario });
+    if ($("ovl-scope").value === "seed") q.set("seed", S.seed);
+    const rows = await (await fetch("/api/history?" + q)).json();
+    const mode = $("ovl-mode").value;
+    ovl.rows = rows.filter(r => r.run !== D.run && (mode === "all" || r.mode === mode));
+    ovlList();
+  }
+  function ovlList() {
+    $("ovl-scen").textContent = `\u00b7 ${S.scenario} \u00b7 ${ovl.rows.length} run${ovl.rows.length === 1 ? "" : "s"}`;
+    $("ovl-list").innerHTML = ovl.rows.length ? ovl.rows.map(r => {
+      const s = ovl.sel.get(r.run);
+      return `<div class="ovl-row" data-run="${esc(r.run)}"><input type="checkbox" ${s ? "checked" : ""}>`
+        + `<span class="ovl-sw" style="background:${s ? s.color : "#30363d"}"></span><span class="ovl-id">${esc(runLabel(r))}</span>`
+        + `<span>${outcomeChip(r.outcome)}${r.pass ? "" : " " + chip("FAIL", "bad")}</span><span class="ovl-plan">${esc(shortPlan(r))}</span>`
+        + `<span class="ovl-time">${new Date(r.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>`;
+    }).join("") : `<div class="note" style="padding:8px 2px">No other runs of this scenario yet. Run it again from the launcher.</div>`;
+    $("ovl-list").querySelectorAll(".ovl-row").forEach(el => el.addEventListener("click", ev => {
+      ev.preventDefault();
+      ovlToggle(el.dataset.run);
+    }));
+    $("ovl-count").textContent = ovl.sel.size ? `(${ovl.sel.size})` : "";
+    $("ovl-note").textContent = ovl.sel.size >= OVL_MAX ? `Showing the first ${OVL_MAX} tracks.` : "";
+  }
+  async function ovlToggle(run, on) {
+    const want = on === undefined ? !ovl.sel.has(run) : on;
+    if (!want) { ovl.sel.delete(run); ovlList(); ovlLegend(); render(); return; }
+    if (ovl.sel.has(run) || ovl.sel.size >= OVL_MAX) return;
+    const row = ovl.rows.find(r => r.run === run);
+    if (!ovl.paths.has(run)) ovl.paths.set(run, await (await fetch("/api/path?run=" + encodeURIComponent(run))).json());
+    ovl.sel.set(run, { row, color: OVL_COLORS[ovl.next++ % OVL_COLORS.length] });
+    ovlList(); ovlLegend(); render();
+  }
+  function ovlLegend() {
+    const el = $("ovl-legend");
+    if (!ovl.sel.size) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = `<div class="lh">TRACK OVERLAY \u00b7 ${ovl.sel.size}</div>`
+      + `<div class="lr"><span class="ovl-sw" style="background:var(--truth)"></span><span>THIS RUN</span><span>${outcomeChip(S.outcome)}</span><span></span></div>`
+      + [...ovl.sel.entries()].map(([run, s]) => {
+        const dv = divergence(ovl.paths.get(run));
+        return `<div class="lr"><span class="ovl-sw" style="background:${s.color}"></span><span>${esc(runLabel(s.row))}</span>`
+          + `<span>${outcomeChip(s.row.outcome)}</span>`
+          + (dv == null ? `<span class="note">same track</span>` : `<span class="div" data-t="${dv}" title="Jump to where this run first differs from this one by more than 1 m">\u0394 t=${dv.toFixed(0)} s</span>`)
+          + `</div>`;
+      }).join("");
+    el.querySelectorAll(".div").forEach(d => d.addEventListener("click", () => { t = +d.dataset.t; render(); }));
+  }
+  function drawOverlays(g, v, pose) {
+    const labelled = [];  // ghost label positions, to stack labels of ghosts that overlap
+    for (const [run, s] of ovl.sel) {
+      const path = ovl.paths.get(run);
+      if (!path || !path.length) continue;
+      g.save(); g.globalAlpha = 0.7; g.strokeStyle = s.color; g.lineWidth = 1.6; g.setLineDash([]);
+      g.beginPath(); path.forEach((p, j) => j ? g.lineTo(v.X(p[1]), v.Y(p[2])) : g.moveTo(v.X(p[1]), v.Y(p[2]))); g.stroke();
+      g.globalAlpha = 1;
+      const gh = pathAt(path, pose ? t : 0);
+      if (gh) {
+        const x = v.X(gh.x), y = v.Y(gh.y);
+        g.strokeStyle = s.color; g.fillStyle = "rgba(13,17,23,0.85)"; g.lineWidth = 2;
+        if (gh.ended) { g.beginPath(); g.rect(x - 5, y - 5, 10, 10); g.fill(); g.stroke(); }
+        else { g.beginPath(); g.arc(x, y, 6, 0, 2 * Math.PI); g.fill(); g.stroke(); }
+        g.fillStyle = s.color; g.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        const stack = labelled.filter(p => Math.hypot(p[0] - x, p[1] - y) < 14).length;
+        labelled.push([x, y]);
+        g.fillText(runLabel(s.row).replace(/ \u00b7 /g, " "), x + 9, y - 7 + 12 * stack);
+      }
+      g.restore();
+    }
+  }
+  if (ovlOn && D.run) {
+    $("ovl-wrap").hidden = false;
+    $("ovl-btn").addEventListener("click", ev => {
+      ev.stopPropagation();
+      const pop = $("ovl-pop");
+      pop.hidden = !pop.hidden;
+      if (!pop.hidden) ovlLoad();
+    });
+    $("ovl-pop").addEventListener("click", ev => ev.stopPropagation());
+    document.addEventListener("click", () => { $("ovl-pop").hidden = true; });
+    ["ovl-scope", "ovl-mode"].forEach(id => $(id).addEventListener("change", ovlLoad));
+    $("ovl-all").addEventListener("click", async () => {
+      for (const r of ovl.rows.slice(0, OVL_MAX)) await ovlToggle(r.run, true);
+    });
+    $("ovl-clear").addEventListener("click", () => { ovl.sel.clear(); ovl.next = 0; ovlList(); ovlLegend(); render(); });
+    // ?overlay=all pre-selects every other run of this scenario and seed.
+    if (new URLSearchParams(location.search).get("overlay") === "all") {
+      ovlLoad().then(async () => { for (const r of ovl.rows.slice(0, OVL_MAX)) await ovlToggle(r.run, true); });
+    }
+  }
+
+  function refreshDerived() {
+    deriveEvents(); deriveStops(); deriveCopilot(); drawHeader(); buildTimeline(); deriveBounds();
+    scrub.max = tEnd;
+    if (typeof ovlLegend === "function" && ovl.sel.size) ovlLegend();
+  }
+  refreshDerived();
+
+  if (D.live) {
+    // Live: frames arrive from the server as the simulation runs. The view
+    // follows the newest frame unless the user has scrubbed back.
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => { scheduled = false; refreshDerived(); if (following && !playing) t = tEnd; render(); });
+    };
+    const es = new EventSource(`/api/live/stream?id=${encodeURIComponent(D.live.id)}`);
+    es.addEventListener("frames", ev => {
+      following = !N || t >= tEnd - 0.5;
+      const batch = JSON.parse(ev.data);
+      for (const f of batch) F.push(f);
+      N = F.length; tEnd = F[N - 1].t;
+      schedule();
+    });
+    es.addEventListener("end", ev => {
+      es.close();
+      const d = JSON.parse(ev.data);
+      if (d.summary) S = d.summary;
+      D.live.ended = true;
+      D.live.cancelled = !!d.cancelled;
+      refreshDerived(); render();
+      if (window.parent !== window) window.parent.postMessage({ type: "singularos-live-end", ...d }, "*");
+    });
+    es.onerror = () => { if (D.live.ended) es.close(); };
+    render();
+  } else {
+    const qt = parseFloat(new URLSearchParams(location.search).get("t"));
+    if (Number.isFinite(qt)) t = qt;
+    render();
+    // ?autoplay=1 (used by the launcher's Run & play) starts playback on load.
+    if (new URLSearchParams(location.search).get("autoplay") === "1") togglePlay();
+  }
 })();
 </script>
 </body>

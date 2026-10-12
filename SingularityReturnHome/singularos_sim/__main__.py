@@ -165,7 +165,7 @@ def main(argv=None):
     if s["mode"] == "copilot":
         print(f"authority at end: {s['authority']}")
     if s["plan"]:
-        print(f"recovery decision ({s['plan'].get('source', 'baseline')}): {s['plan']['decision']}; " + "; ".join(s["plan"]["reasons"]))
+        print(f"recovery decision ({s['plan'].get('by', 'baseline')}): {s['plan']['decision']}; " + "; ".join(s["plan"]["reasons"]))
     for v in s["advisory_violations"]:
         print(f"ADVISORY VIOLATION: {v['type']} first at t={v['t']:.1f} s" + (f" ({v['steps']} steps)" if v["steps"] > 1 else ""))
     print(f"sim time: {s['sim_time_s']:.2f} s  steps: {s['steps']}")

@@ -6,6 +6,8 @@ extends = "nominal.toml"
 [scenario]
 name = "thruster_fault_infeasible"
 expected_outcome = "HOLD"
+# The manual's coast-in procedure docks without the backward thruster.
+expected_outcome_copilot = "DOCKED"
 
 [[faults]]
 type = "impact"
