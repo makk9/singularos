@@ -24,7 +24,7 @@ def make_advisor():
     return RecoveryAdvisor(RecoveryHarness(client)) if status["ok"] else None
 
 
-def make_copilot(plan_file=None):
+def make_copilot(plan_file=None, input_format="report"):
     """Copilot for --copilot: scripted plans from a JSON file (offline demo
     and tests), or the LLM from SINGULAROS_LLM_* settings. None if the LLM is
     unavailable (the run then uses the deterministic baseline)."""
@@ -36,12 +36,12 @@ def make_copilot(plan_file=None):
     if plan_file:
         plans = json.loads(Path(plan_file).read_text())
         print(f"copilot: scripted plans from {plan_file}")
-        return ScriptedCopilot(plans if isinstance(plans, list) else [plans])
+        return ScriptedCopilot(plans if isinstance(plans, list) else [plans], input_format)
     client = LLMClient()
     status = client.health()
     print(f"copilot: {client.config.backend} at {client.config.base_url}, model {client.config.model or '(unset)'}: "
           + ("ready" if status["ok"] else f"unavailable ({status['detail']}); baseline only"))
-    return CopilotAgent(client) if status["ok"] else None
+    return CopilotAgent(client, input_format) if status["ok"] else None
 
 
 def passed(s):
@@ -108,8 +108,10 @@ def main(argv=None):
                         help="let the AI copilot propose the recovery plan; validated plans are executed")
     parser.add_argument("--copilot-plan", default=None, metavar="FILE",
                         help="with --copilot: use scripted plan(s) from a JSON file instead of the LLM")
+    parser.add_argument("--copilot-input", choices=("report", "summary"), default="report",
+                        help="with --copilot: structured anomaly report (default) or prose summary")
     args = parser.parse_args(argv)
-    copilot = make_copilot(args.copilot_plan) if args.copilot else None
+    copilot = make_copilot(args.copilot_plan, args.copilot_input) if args.copilot else None
 
     if args.all:
         return run_all(args.seed, copilot)

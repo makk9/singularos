@@ -244,7 +244,8 @@ approach_lateral_limit_m = 0.2   # degraded final approach: back out beyond this
 max_dock_retries = 3             # then fall back to HOLD
 abort_brake_timeout_s = 60.0     # ABORT: brake this long at most, then thrusters off
 # AI copilot (only used when a copilot is attached, e.g. --copilot).
-copilot_max_attempts = 3         # proposals per decision point before the baseline takes over
+copilot_max_attempts = 3
+report_trend_s = 10.0            # anomaly report: recent-trend window         # proposals per decision point before the baseline takes over
 copilot_min_clearance_m = 2.0    # straight copilot paths keep this far from the station
 coast_predock_distance_m = 1.5   # coast-in starts from this far out (room to turn while coasting)
 coast_min_speed_m_s = 0.01

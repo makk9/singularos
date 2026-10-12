@@ -104,7 +104,7 @@ import math
 from collections import deque
 from dataclasses import dataclass
 
-from . import plan_validator, planner
+from . import anomaly_report, plan_validator, planner
 from .config import ORBITAL_DEFAULTS, THRUSTER_DIRECTIONS, THRUSTER_NAMES
 from .dynamics import Command, wrap_angle
 from .orbit import mean_motion, natural_accel, orbit_status, station_radius_m
@@ -190,6 +190,8 @@ class Controller:
         self.dock_retries = 0
         self.precise_since = None
         self.nav_history = deque(maxlen=recovery["nav_average_samples"])
+        self.event_log = []         # every event so far, for the anomaly report
+        self.trend_history = deque()  # (t, x, y, vx, vy) over the last report_trend_s
         self.last_residual = None
 
     # ------------------------------------------------------------------ state
@@ -229,6 +231,7 @@ class Controller:
 
     def take_events(self):
         events, self.events = self.events, []
+        self.event_log.extend(events)
         return events
 
     def _usable(self):
@@ -256,6 +259,9 @@ class Controller:
             return Command.idle()
         v = nav.value
         self.nav_history.append((v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"]))
+        self.trend_history.append((t, v["x_m"], v["y_m"], v["vx_m_s"], v["vy_m_s"]))
+        while self.trend_history[0][0] < t - self.recovery["report_trend_s"] - 1e-9:
+            self.trend_history.popleft()
 
         if self.final == "ABORT":
             return self._abort_brake(t, nav, att)
@@ -713,6 +719,17 @@ class Controller:
         closing = v["vx_m_s"] * ux + v["vy_m_s"] * uy
         return dist < self.recovery["diag_safe_distance_m"] and closing > self.recovery["brake_speed_m_s"]
 
+    def _nearest_structure_named(self, x, y):
+        """Like _nearest_structure, plus the component's name."""
+        best = (math.inf, (0.0, 0.0), None)
+        for c in self.station:
+            px = min(max(x, c["min_m"][0]), c["max_m"][0])
+            py = min(max(y, c["min_m"][1]), c["max_m"][1])
+            d = math.hypot(px - x, py - y)
+            if d < best[0]:
+                best = (d, ((px - x) / d, (py - y) / d) if d > 0 else (0.0, 0.0), c["name"])
+        return best
+
     def _nearest_structure(self, x, y):
         """Distance and unit direction from (x, y) to the nearest station component."""
         best = (math.inf, (0.0, 0.0))
@@ -945,7 +962,31 @@ class Controller:
             "usable": sorted(self._usable(), key=THRUSTER_NAMES.index),
             "fuel_reserve_kg": self.recovery["fuel_reserve_kg"],
             "advisories": [{"id": a["id"], "text": a["text"]} for a in self.advisories],
+            "report": self._anomaly_report(t, nav, fuel_kg),
         }
+
+    def _anomaly_report(self, t, nav, fuel_kg):
+        """Structured report from controller-side data (see anomaly_report.py)."""
+        v = nav.value
+        att = self.latest["attitude_sensor"]
+        fuel = self.latest.get("fuel_monitor")
+        h0 = self.trend_history[0]
+        span = t - h0[0]
+        trend = {"window_s": round(span, 1), "dx_m": round(v["x_m"] - h0[1], 2), "dy_m": round(v["y_m"] - h0[2], 2),
+                 "dvx_m_s": round(v["vx_m_s"] - h0[3], 3), "dvy_m_s": round(v["vy_m_s"] - h0[4], 3)}
+        rng = math.hypot(v["x_m"], v["y_m"])
+        dist, (ux, uy), name = self._nearest_structure_named(v["x_m"], v["y_m"])
+        proximity = {"dock_range_m": round(rng, 2),
+                     "dock_range_rate_m_s": round((v["x_m"] * v["vx_m_s"] + v["y_m"] * v["vy_m_s"]) / rng, 3) if rng > 0 else 0.0,
+                     "nearest_structure": name, "structure_distance_m": round(dist, 2),
+                     "structure_closing_m_s": round(v["vx_m_s"] * ux + v["vy_m_s"] * uy, 3)}
+        u = nav.uncertainty
+        events = self.event_log + self.events
+        return anomaly_report.build_report(
+            t, events, self.health, self.health_verified, self.recovery["usable_effectiveness"],
+            v, (u["x_m"], u["vx_m_s"]), t - nav.timestamp, att.value, att.uncertainty["heading_rad"],
+            trend, proximity, fuel_kg, fuel.uncertainty["fuel_kg"] if fuel else None,
+            self.recovery["fuel_reserve_kg"], self.advisories)
 
     def _validator_context(self, nav, points, fuel_kg):
         v = nav.value

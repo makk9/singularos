@@ -52,6 +52,13 @@ def _segment_box_distance(a, b, lo, hi, step=0.25, corridor=0.0):
     return best
 
 
+def _segment_min_range(a, b, step=0.25):
+    """Closest approach of the segment a-b to the dock port (origin)."""
+    length = math.hypot(b[0] - a[0], b[1] - a[1])
+    n = max(1, int(length / step))
+    return min(math.hypot(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n) for i in range(n + 1))
+
+
 def plan_path(plan, ctx):
     """Waypoints the plan flies through, starting from the current position.
     Returns a list of (point, label, check_clearance)."""
@@ -93,8 +100,11 @@ def validate_plan(plan, ctx):
         checks["structure"].append("plan has no steps")
     else:
         if actions[-1] not in DECISION_STEPS.get(decision, ()):
+            intended = next((d for d, ends in DECISION_STEPS.items() if actions[-1] in ends), None)
+            hint = f"; a plan ending with {actions[-1]} is decision {intended}" if intended else ""
             checks["structure"].append(
-                f"decision {decision} must end with {' or '.join(DECISION_STEPS.get(decision, ('?',)))}, not {actions[-1]}")
+                f"decision {decision} must end with {' or '.join(DECISION_STEPS.get(decision, ('?',)))}, "
+                f"not {actions[-1]}{hint}")
         for i, a in enumerate(actions[:-1]):
             if a in TERMINAL:
                 checks["structure"].append(f"step {i + 1} {a} is terminal but more steps follow")
@@ -155,6 +165,13 @@ def validate_plan(plan, ctx):
                     checks["advisories"].append(
                         f"step {i + 1} PREDOCK_STOP flies into the {within:g} m speed-limit zone at {v:.3f} m/s; "
                         f"set speed_m_s at most {speed_cap:.3f}")
+            if s["action"] in ("GOTO", "HOLD_AT") and "x_m" in s and "y_m" in s:
+                near = math.hypot(s["x_m"], s["y_m"]) <= within
+                v = s.get("speed_m_s", r["transit_max_speed_m_s"])
+                if near and v > speed_cap + 1e-9:
+                    checks["advisories"].append(
+                        f"step {i + 1} {s['action']} to ({s['x_m']:.1f}, {s['y_m']:.1f}) enters the {within:g} m "
+                        f"speed-limit zone at {v:.3f} m/s; set speed_m_s at most {speed_cap:.3f} or stay outside it")
             if s["action"] in ("COAST_IN", "FINAL_APPROACH"):
                 v = s.get("speed_m_s", r["approach_max_speed_m_s"] if s["action"] == "FINAL_APPROACH" else None)
                 if v is not None and v > speed_cap + 1e-9:

@@ -117,12 +117,21 @@ def test_copilot_error_falls_back_to_baseline(tmp_path):
     assert events(s, "copilot_error") and s["authority"] == "baseline" and s["outcome"] == "HOLD"
 
 
-def test_copilot_prompt_has_evidence_but_not_baseline_decision_or_truth(tmp_path):
-    agent = ScriptedCopilot(plans("dock_closed"))
+@pytest.mark.parametrize("fmt", ["report", "summary"])
+def test_copilot_prompt_has_evidence_but_not_baseline_decision_or_truth(tmp_path, fmt):
+    agent = ScriptedCopilot(plans("dock_closed"), input_format=fmt)
     run("copilot_trap_dock_closed", agent, tmp_path)
     text = agent.calls[0]["context"]
-    assert "left FAILED" in text and "STA-11" in text
-    for leak in ("Deterministic decision", "RETURN;", "thruster_health", "effectiveness", "truth"):
+    assert "STA-11" in text and "docking port A is CLOSED" in text
+    if fmt == "report":
+        assert text.splitlines()[1].startswith("KEY FACTS: failed thrusters: left")
+        report = json.loads(text.splitlines()[2])
+        assert report["thrusters"]["left"]["status"] == "FAILED"
+        assert {d["thruster"] for d in report["diagnostics"]} >= {"left", "forward", "backward", "right"}
+        assert report["alerts"][0]["code"] == "PROPULSION_ANOMALY"
+    else:
+        assert "left FAILED" in text
+    for leak in ("Deterministic decision", "RETURN;", "baseline", "thruster_health", "effectiveness", "truth", "impact"):
         assert leak not in text
 
 
@@ -132,3 +141,11 @@ def test_failed_copilot_under_advisories_falls_back_to_hold(tmp_path):
     bad = step_plan("HOLD", {"action": "GOTO", "x_m": 8.0, "y_m": 0.0}, {"action": "HOLD_AT", "x_m": 8.0, "y_m": 0.0})
     s = run("copilot_trap_dock_closed", ScriptedCopilot([bad]), tmp_path)
     assert s["authority"] == "baseline" and s["outcome"] == "HOLD" and not s["advisory_violations"]
+
+
+def test_validator_checks_goto_speed_inside_advisory_zone(vctx):
+    slow = {**vctx, "constraints": [{"type": "max_approach_speed", "value_m_s": 0.02, "within_m": 3.0, "advisory": "A2"}]}
+    plan = step_plan("DOCK", {"action": "RETURN_TO_STAGING"}, {"action": "GOTO", "x_m": 2.0, "y_m": 0.0},
+                     {"action": "PREDOCK_STOP", "speed_m_s": 0.02}, {"action": "COAST_IN", "speed_m_s": 0.02})
+    v = validate_plan(plan, slow)
+    assert any("GOTO" in p and "speed-limit zone" in p for p in v["problems"])

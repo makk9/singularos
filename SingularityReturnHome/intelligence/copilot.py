@@ -48,12 +48,21 @@ def load_schema():
     return json.loads(SCHEMA_PATH.read_text())
 
 
-def context_text(ctx):
-    """Evidence summary for the prompt. Deliberately excludes the baseline decision."""
+INPUT_FORMATS = ("report", "summary")
+
+
+def context_text(ctx, fmt="report"):
+    """Prompt input. "report" (default): the structured anomaly report from
+    onboard fault management (singularos_sim/anomaly_report.py). "summary":
+    a short prose summary of the same evidence (kept for comparison).
+    Neither contains the baseline decision or truth."""
+    if fmt == "report":
+        from singularos_sim.anomaly_report import report_text
+        return report_text(ctx["report"])
     o = ctx["observed"]
     health = ", ".join(f"{k} {'FAILED' if v == 0 else f'{round(100 * v)}%'}" for k, v in ctx["health_estimate"].items())
     lines = [
-        f"Time t={ctx['t']:.1f} s. A fault was detected and diagnosed; the craft has braked and is waiting for a plan.",
+        f"Time t={ctx['t']:.1f} s. A fault was detected and diagnosed; the craft is waiting for a plan.",
         f"Position (station frame): x={o['x_m']:.2f} m, y={o['y_m']:.2f} m; velocity vx={o['vx_m_s']:.3f}, vy={o['vy_m_s']:.3f} m/s; "
         f"distance to dock {ctx['distance_to_dock_m']:.1f} m.",
         f"Diagnosed thruster health: {health}. Usable thrusters: {', '.join(ctx['usable']) or 'none'}.",
@@ -73,8 +82,11 @@ class CopilotAgent:
 
     name = "llm"
 
-    def __init__(self, client: LLMClient | None = None):
+    def __init__(self, client: LLMClient | None = None, input_format="report"):
+        if input_format not in INPUT_FORMATS:
+            raise ValueError(f"input_format must be one of {INPUT_FORMATS}")
         self.client = client or LLMClient()
+        self.input_format = input_format
         self.schema = load_schema()
         self.manual = load_manual()
 
@@ -82,12 +94,14 @@ class CopilotAgent:
         """history: list of (plan, problems) from earlier rejected attempts."""
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT + "MANUAL\n" + self.manual},
-            {"role": "user", "content": context_text(ctx)},
+            {"role": "user", "content": context_text(ctx, self.input_format)},
         ]
-        for plan, problems in history:
+        for k, (plan, problems) in enumerate(history):
+            repeat = k > 0 and plan["steps"] == history[k - 1][0]["steps"] and plan["decision"] == history[k - 1][0]["decision"]
             messages.append({"role": "assistant", "content": json.dumps(plan)})
             messages.append({"role": "user", "content": "The validator REJECTED that plan: " + "; ".join(problems)
-                             + ". Fix these problems and propose again."})
+                             + (". You repeated the previous rejected plan unchanged; change the steps or values the "
+                                "validator named" if repeat else "") + ". Fix these problems and propose again."})
         start = time.monotonic()
         try:
             content = self.client.chat(messages, self.schema)
@@ -114,11 +128,12 @@ class ScriptedCopilot:
 
     name = "scripted"
 
-    def __init__(self, plans):
+    def __init__(self, plans, input_format="report"):
         self.plans = list(plans)
         self.calls = []
+        self.input_format = input_format
 
     def propose(self, ctx, history=()):
-        self.calls.append({"context": context_text(ctx), "history": list(history)})
+        self.calls.append({"context": context_text(ctx, self.input_format), "history": list(history)})
         plan = self.plans[min(len(history), len(self.plans) - 1)]
         return plan, 0.0
