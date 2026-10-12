@@ -15,6 +15,8 @@ from pathlib import Path
 
 THRUSTER_NAMES = ("forward", "backward", "left", "right")
 OUTCOMES = ("DOCKED", "HOLD", "ABORT", "NOT_DOCKED")
+# Station's orbit angle from local noon at t = 0. Display only (replay lighting).
+DEFAULT_START_ANGLE_FROM_NOON_DEG = 90.0
 
 # Body-frame unit force direction of each thruster (body +x = nose, +y = left).
 THRUSTER_DIRECTIONS = {
@@ -52,6 +54,7 @@ def load_config(path):
     config.setdefault("faults", [])
     config["scenario"].setdefault("expected_outcome", "DOCKED")
     config["scenario"].setdefault("post_outcome_observe_s", 0.0)
+    config["orbit"].setdefault("start_angle_from_noon_deg", DEFAULT_START_ANGLE_FROM_NOON_DEG)
     validate_config(config)
     return config
 

@@ -117,7 +117,7 @@
   <span class="meta" id="meta"></span>
   <span class="badge" id="outcome"></span>
   <span class="meta" id="collision"></span>
-  <span class="note-right">2D orbital relative motion (Clohessy&ndash;Wiltshire). Inspection is a pose and hold.</span>
+  <span class="note-right">2D orbital relative motion (Clohessy&ndash;Wiltshire). Inspection is a pose and hold. Sunlight and stars are display only.</span>
 </header>
 <main>
   <div id="world-wrap"><canvas id="world"></canvas></div>
@@ -169,6 +169,9 @@
       <div class="sw" style="background:#c9d1d9"></div><div>Station: radiator</div>
       <div class="sw" style="background:var(--bad)"></div><div>Particle impact; red mark on the vehicle = failed thruster (truth)</div>
       <div class="sw" style="background:#e3b341"></div><div>Recovery path chosen by the controller; diamond = hold point</div>
+      <div class="sw" style="background:#ffd166"></div><div>Sun direction. Station shading follows it; the scene goes dark in Earth's shadow (eclipse).</div>
+      <div class="dot" style="background:#c9d1d9"></div><div>Stars: fixed in inertial space, so they turn once per orbit in this station frame</div>
+      <div class="sw" style="background:#2f6fb5"></div><div>Glow on the left edge: Earth, below the station (&minus;R-bar)</div>
     </div>
     </details>
   </aside>
@@ -183,11 +186,16 @@
         <option value="20" selected>20&times;</option><option value="50">50&times;</option>
       </select>
     </label>
+    <label class="note">View
+      <select id="viewmode">
+        <option value="station" selected>Station frame</option><option value="chase">Chase vehicle</option>
+      </select>
+    </label>
     <input type="range" id="scrub" min="0" step="0.001">
     <span class="clock" id="tlabel"></span>
   </div>
   <div id="timeline"><div id="cursor"></div></div>
-  <div class="note">Space: play/pause. Left/Right: step one controller tick. Click the phase bar to jump. Add ?t=SECONDS to the URL to open at a given time.</div>
+  <div class="note">Space: play/pause. C: toggle chase view. Left/Right: step one controller tick. Click the phase bar to jump. Add ?t=SECONDS to the URL to open at a given time, ?view=chase for the chase view.</div>
 </footer>
 
 <script id="data" type="application/json">__REPLAY_DATA__</script>
@@ -279,6 +287,7 @@
   scrub.addEventListener("input", () => { t = +scrub.value; render(); });
   $("play").onclick = () => togglePlay();
   $("restart").onclick = () => { t = 0; render(); };
+  $("viewmode").addEventListener("change", () => { $("viewmode").blur(); render(); });
   function togglePlay() {
     if (!playing && t >= tEnd) t = 0;
     playing = !playing; last = null;
@@ -291,6 +300,7 @@
     else if (e.code === "ArrowRight") { t = Math.min(tEnd, (Math.floor(t / P + 1e-6) + 1) * P); render(); }
     else if (e.code === "ArrowLeft") { t = Math.max(0, (Math.ceil(t / P - 1e-6) - 1) * P); render(); }
     else if (e.code === "Home") { t = 0; render(); }
+    else if (e.code === "KeyC") { const vm = $("viewmode"); vm.value = vm.value === "chase" ? "station" : "chase"; render(); }
   });
   function tick(now) {
     if (!playing) return;
@@ -338,7 +348,99 @@
       if (labels) g.fillText(`${+y.toFixed(2)} m`, 4, v.Y(y) - 3);
     }
   }
-  function ship(g, v, x, y, h, len, style, filled, thrust, health) {
+  // Orbit context for display: circular orbit, Sun in the orbit plane. The
+  // station frame turns once per orbit relative to the stars and the Sun.
+  const MU = 3.986004418e14, RE = 6371e3, DEG = Math.PI / 180;
+  const NRATE = 2 * Math.PI / D.orbit_period_s;
+  const R_ORB = Math.cbrt(MU / (NRATE * NRATE));
+  const ALT_KM = (R_ORB - RE) / 1e3;
+  const ECL_IN = Math.PI - Math.asin(RE / R_ORB), ECL_OUT = 2 * Math.PI - ECL_IN;  // from local noon
+  const TH0 = D.orbit_start_angle_deg * DEG;
+  const mod2pi = a => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  function sunAt(time) {
+    const th = TH0 + NRATE * time, a = mod2pi(th);
+    const fromNoon = Math.abs(wrap(th));
+    const level = Math.max(0, Math.min(1, (ECL_IN - fromNoon) / (0.8 * DEG) + 0.5));
+    const eclipse = a > ECL_IN && a < ECL_OUT;
+    const next = eclipse ? (ECL_OUT - a) / NRATE : (mod2pi(ECL_IN - a)) / NRATE;
+    // Sun direction in the station frame (x radial, y along-track).
+    return { th, sx: Math.cos(th), sy: -Math.sin(th), level, eclipse, next };
+  }
+  // Stars at fixed inertial angles; deterministic so every replay looks the same.
+  const STARS = (() => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    return Array.from({ length: 320 }, () => ({ a: rnd() * 2 * Math.PI, r: Math.sqrt(rnd()), m: rnd() ** 3, tw: rnd() * 6 }));
+  })();
+  function drawSky(g, w, h, sun) {
+    const cx = w / 2, cy = h / 2, R = Math.hypot(w, h) / 2;
+    const vis = 0.25 + 0.65 * (1 - sun.level);  // washed out in sunlight
+    for (const st of STARS) {
+      const a = st.a - sun.th, x = cx + st.r * R * Math.cos(a), y = cy - st.r * R * Math.sin(a);
+      if (x < 0 || x > w || y < 0 || y > h) continue;
+      const b = vis * (0.35 + 0.65 * st.m) * (0.85 + 0.15 * Math.sin(t * 0.7 + st.tw));
+      g.fillStyle = `rgba(220,230,255,${b.toFixed(3)})`;
+      const sz = 0.8 + 1.4 * st.m;
+      g.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+    }
+    // Earth is always below the station: -R-bar, the left edge of the map.
+    const ew = Math.min(220, w * 0.2);
+    const gr = g.createLinearGradient(0, 0, ew, 0);
+    const day = sun.level;
+    gr.addColorStop(0, `rgba(${40 + 30 * day},${70 + 80 * day},${110 + 110 * day},${0.16 + 0.16 * day})`);
+    gr.addColorStop(0.35, `rgba(60,130,220,${0.04 + 0.08 * day})`);
+    gr.addColorStop(1, "rgba(60,130,220,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, ew, h);
+    g.fillStyle = `rgba(120,170,230,${0.25 + 0.35 * day})`; g.fillRect(0, 0, 2, h);
+    g.save(); g.translate(14, h / 2); g.rotate(-Math.PI / 2);
+    g.font = "10px system-ui, sans-serif"; g.textAlign = "center"; g.fillStyle = "rgba(139,180,230,.75)";
+    g.fillText(`\u2191 Earth, ${ALT_KM.toFixed(0)} km below${sun.eclipse ? " (night side)" : ""}`, 0, 0);
+    g.restore();
+  }
+  // Sun glyph on the map edge, in the Sun's direction from the map centre.
+  function drawSunMarker(g, w, h, sun) {
+    const dx = sun.sx, dy = -sun.sy, m = 26;
+    const k = Math.min((w / 2 - m) / Math.max(Math.abs(dx), 1e-9), (h / 2 - m) / Math.max(Math.abs(dy), 1e-9));
+    const x = w / 2 + dx * k, y = h / 2 + dy * k;
+    g.save();
+    if (sun.eclipse) {
+      g.strokeStyle = "#6e7681"; g.lineWidth = 1.5; g.setLineDash([2, 2]);
+      g.beginPath(); g.arc(x, y, 9, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]);
+    } else {
+      const glow = g.createRadialGradient(x, y, 0, x, y, 40);
+      glow.addColorStop(0, `rgba(255,209,102,${0.5 * sun.level})`); glow.addColorStop(1, "rgba(255,209,102,0)");
+      g.fillStyle = glow; g.beginPath(); g.arc(x, y, 40, 0, 2 * Math.PI); g.fill();
+      g.fillStyle = "#ffd166"; g.strokeStyle = "#ffd166"; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(x, y, 7, 0, 2 * Math.PI); g.fill();
+      g.beginPath();
+      for (let j = 0; j < 8; j++) { const a = j * Math.PI / 4 + t * 0.2; g.moveTo(x + 10 * Math.cos(a), y + 10 * Math.sin(a)); g.lineTo(x + 15 * Math.cos(a), y + 15 * Math.sin(a)); }
+      g.stroke();
+    }
+    g.font = "10px system-ui, sans-serif"; g.fillStyle = sun.eclipse ? "#6e7681" : "#ffd166";
+    g.textAlign = x > w / 2 ? "right" : "left";
+    g.fillText(sun.eclipse ? "Sun (behind Earth)" : "Sun", x + (x > w / 2 ? -18 : 18), y + (y > h / 2 ? -12 : 22));
+    g.restore();
+  }
+  // Short spray of debris from a particle impact, deterministic.
+  const DEBRIS = (() => {
+    let seed = 11;
+    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    return Array.from({ length: 28 }, () => ({ a: rnd() * 2 * Math.PI, sp: 0.15 + rnd() * 0.9, sz: 1 + rnd() * 2 }));
+  })();
+  function drawDebris(g, v, ev) {
+    const age = t - ev.t, life = 12;
+    if (age < 0 || age > life) return;
+    const dv = ev.delta_v_m_s || [0, 0], dn = Math.hypot(dv[0], dv[1]) || 1;
+    for (const p of DEBRIS) {
+      // Fragments scatter roughly along the impactor's direction of travel.
+      const dx = 0.6 * Math.cos(p.a) + dv[0] / dn, dy = 0.6 * Math.sin(p.a) + dv[1] / dn;
+      const x = v.X(ev.x_m + dx * p.sp * age), y = v.Y(ev.y_m + dy * p.sp * age);
+      g.fillStyle = `rgba(255,${150 + 80 * (1 - age / life) | 0},90,${(1 - age / life).toFixed(3)})`;
+      g.fillRect(x - p.sz / 2, y - p.sz / 2, p.sz, p.sz);
+    }
+  }
+
+  function ship(g, v, x, y, h, len, style, filled, thrust, health, strobe) {
     const px = v.X(x), py = v.Y(y), L = Math.max(len * v.s, 28);
     g.save(); g.translate(px, py); g.rotate(-h);
     if (thrust) {
@@ -348,9 +450,21 @@
       thrust.forEach((f, k) => {
         const frac = D.max_thrust_n[k] > 0 ? f / D.max_thrust_n[k] : 0;
         if (frac <= 0.01) return;
-        const [dx, dy] = dirs[k], base = L * 0.45, plen = L * (0.3 + 0.9 * frac);
-        g.strokeStyle = `rgba(255,140,60,${0.35 + 0.6 * frac})`; g.lineWidth = 3;
-        g.beginPath(); g.moveTo(dx * base, -dy * base); g.lineTo(dx * (base + plen), -dy * (base + plen)); g.stroke();
+        const [dx, dy] = dirs[k], base = L * 0.4;
+        const flick = 0.85 + 0.15 * Math.sin(t * 41 + k * 1.7) * Math.sin(t * 23 + k);
+        const plen = L * (0.35 + 1.1 * frac) * flick, half = L * (0.06 + 0.14 * frac);
+        const px = -dy, py = -dx;  // perpendicular, screen coords
+        const gr = g.createLinearGradient(dx * base, -dy * base, dx * (base + plen), -dy * (base + plen));
+        gr.addColorStop(0, `rgba(255,245,220,${0.55 + 0.45 * frac})`);
+        gr.addColorStop(0.25, `rgba(255,170,80,${0.4 + 0.4 * frac})`);
+        gr.addColorStop(1, "rgba(255,110,40,0)");
+        g.fillStyle = gr;
+        g.beginPath();
+        g.moveTo(dx * base + px * half * 0.4, -dy * base + py * half * 0.4);
+        g.lineTo(dx * (base + plen) + px * half, -dy * (base + plen) + py * half);
+        g.lineTo(dx * (base + plen) - px * half, -dy * (base + plen) - py * half);
+        g.lineTo(dx * base - px * half * 0.4, -dy * base - py * half * 0.4);
+        g.closePath(); g.fill();
       });
     }
     const b = L * 0.32;
@@ -371,6 +485,12 @@
         g.setLineDash([]); g.lineWidth = 2.5; g.strokeStyle = hv < 0.2 ? C("bad") : "#e3b341";
         g.beginPath(); g.moveTo(cx - m, cy - m); g.lineTo(cx + m, cy + m); g.moveTo(cx + m, cy - m); g.lineTo(cx - m, cy + m); g.stroke();
       });
+    }
+    if (strobe && (t % 1.5) < 0.12) {
+      // Anti-collision strobe, visible in Earth's shadow.
+      const sg = g.createRadialGradient(0, 0, 0, 0, 0, b * 2.4);
+      sg.addColorStop(0, "rgba(255,255,255,.95)"); sg.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = sg; g.beginPath(); g.arc(0, 0, b * 2.4, 0, 2 * Math.PI); g.fill();
     }
     g.restore();
   }
@@ -404,7 +524,8 @@
     radiator: { fill: "#4a5058", stroke: "#c9d1d9", line: "#8b949e" },
     docking_port: { fill: "#2d333b", stroke: C("ok"), line: C("ok") },
   };
-  function drawStation(g, v, i) {
+  function drawStation(g, v, i, sun) {
+    const ux = sun.sx, uy = -sun.sy;  // Sun direction, screen coords
     for (const c of D.station) {
       const st = STYLE[c.type] || STYLE.hull;
       const [x0, y0] = c.min_m, [x1, y1] = c.max_m;
@@ -423,7 +544,16 @@
       } else if (c.type === "hull") {
         for (let x = x0 + 2; x < x1; x += 2) { g.moveTo(v.X(x), Y1); g.lineTo(v.X(x), Y1 + H); }
       }
-      g.stroke(); g.restore();
+      g.stroke();
+      // Sunlight: lit face toward the Sun, falling off across the part; dark in eclipse.
+      const mx = X0 + W / 2, my = Y1 + H / 2, ext = (Math.abs(ux) * W + Math.abs(uy) * H) / 2 + 1;
+      const lg = g.createLinearGradient(mx + ux * ext, my + uy * ext, mx - ux * ext, my - uy * ext);
+      const glint = c.type === "solar_array" ? 0.16 : 0.22;
+      lg.addColorStop(0, `rgba(255,236,200,${(glint * sun.level).toFixed(3)})`);
+      lg.addColorStop(1, `rgba(0,0,0,${(0.28 * sun.level).toFixed(3)})`);
+      g.fillStyle = lg; g.fillRect(X0, Y1, W, H);
+      if (sun.level < 1) { g.fillStyle = `rgba(4,6,10,${(0.6 * (1 - sun.level)).toFixed(3)})`; g.fillRect(X0, Y1, W, H); }
+      g.restore();
 
       // Outline: white while being inspected, green once inspected.
       const stops = STOPS.filter(s => s.target === c.name);
@@ -457,12 +587,15 @@
 
   function drawWorld(pose) {
     const { g, w, h } = setupCanvas($("world"));
-    const v = view(w, h, minx, maxx, miny, maxy);
+    const chase = $("viewmode").value === "chase", CH = 14;
+    const v = chase ? view(w, h, pose.x - CH, pose.x + CH, pose.y - CH, pose.y + CH) : view(w, h, minx, maxx, miny, maxy);
+    const sun = sunAt(t);
+    drawSky(g, w, h, sun);
     grid(g, v, w, h, 5, true);
 
     const f = F[pose.i];
     const cur = STOPS.find(st => f.leg === st.name);
-    drawStation(g, v, pose.i);
+    drawStation(g, v, pose.i, sun);
 
     // Planned route: staging -> route -> staging -> dock.
     g.setLineDash([5, 5]); g.strokeStyle = "#484f58"; g.lineWidth = 1;
@@ -541,6 +674,7 @@
       if (flash > 0) { g.fillStyle = `rgba(248,81,73,${0.35 * flash})`; g.beginPath(); g.arc(ix, iy, 30 * flash + 6, 0, 2 * Math.PI); g.fill(); }
       g.fillStyle = C("bad"); g.font = "bold 11px system-ui, sans-serif";
       g.fillText(`Particle impact t=${impactEv.t.toFixed(0)} s`, ix + 14, iy - 12);
+      drawDebris(g, v, impactEv);
     }
     if (anomalyEv && pose.i >= anomalyEv.k) {
       const p = F[anomalyEv.k].nav || F[anomalyEv.k].truth;
@@ -549,8 +683,9 @@
     }
 
     if (f.nav && f.att) ship(g, v, f.nav[0], f.nav[1], f.att[0], 1.2, C("obs"), false, null);
-    ship(g, v, pose.x, pose.y, pose.h, 1.2, C("truth"), true, f.thrust, f.health);
-    drawOrbitCompass(g, w, h);
+    ship(g, v, pose.x, pose.y, pose.h, 1.2, C("truth"), true, f.thrust, f.health, sun.level < 0.5);
+    drawSunMarker(g, w, h, sun);
+    drawOrbitContext(g, w, h, sun);
 
     // Axis labels in the station (LVLH) frame.
     g.font = "bold 11px system-ui, sans-serif"; g.fillStyle = "#6e7681";
@@ -571,27 +706,61 @@
     velocityArrow(g, v, pose.x, pose.y, pose.vx, pose.vy, VMAX, "#ffffff");
   }
 
-  // Orbit frame: +x radial (away from Earth), +y along-track (orbital motion).
-  function drawOrbitCompass(g, w, h) {
-    const bw = 200, bh = 84, x0 = w - bw - 12, y0 = h - bh - 24, cx = x0 + 58, cy = y0 + 52, L = 30;
+  // Orbit context, inertial view: Earth, the Sun to the right, the station's
+  // position on its orbit, and the station frame axes turning with it.
+  // Altitude is exaggerated for legibility; eclipse arc uses the true geometry.
+  function drawOrbitContext(g, w, h, sun) {
+    const bw = 262, bh = 184, x0 = w - bw - 12, y0 = h - bh - 24;
+    const cx = x0 + 68, cy = y0 + 104, re = 36, ro = 52;
     g.save();
-    g.fillStyle = "rgba(13,17,23,0.88)"; g.strokeStyle = "#30363d"; g.lineWidth = 1;
+    g.fillStyle = "rgba(13,17,23,0.9)"; g.strokeStyle = "#30363d"; g.lineWidth = 1;
     g.fillRect(x0, y0, bw, bh); g.strokeRect(x0, y0, bw, bh);
-    const arrow = (dx, dy, col) => {
-      const ex = cx + dx * L, ey = cy + dy * L;
-      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 2;
-      g.beginPath(); g.moveTo(cx, cy); g.lineTo(ex, ey); g.stroke();
-      g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex - dx * 7 - dy * 4, ey - dy * 7 + dx * 4);
-      g.lineTo(ex - dx * 7 + dy * 4, ey - dy * 7 - dx * 4); g.closePath(); g.fill();
+    g.font = "bold 10px system-ui, sans-serif"; g.fillStyle = "#8b949e";
+    g.fillText("ORBIT \u00b7 inertial view", x0 + 8, y0 + 14);
+    g.font = "9px system-ui, sans-serif"; g.fillStyle = "#484f58"; g.fillText("altitude not to scale", x0 + 8, y0 + 26);
+    // Sunlight from the right.
+    g.strokeStyle = "rgba(255,209,102,.35)"; g.lineWidth = 1;
+    for (let k = -2; k <= 2; k++) { const yy = cy + k * 14; g.beginPath(); g.moveTo(cx + ro + 26, yy); g.lineTo(cx + ro + 10, yy); g.stroke(); }
+    g.fillStyle = "#ffd166"; g.font = "10px system-ui, sans-serif"; g.fillText("Sun", cx + ro + 10, cy + 48);
+    // Earth: day half toward the Sun, night half away.
+    g.fillStyle = "#0e1a2b"; g.beginPath(); g.arc(cx, cy, re, 0, 2 * Math.PI); g.fill();
+    const eg = g.createLinearGradient(cx - re, cy, cx + re, cy);
+    eg.addColorStop(0.45, "rgba(47,111,181,0)"); eg.addColorStop(0.55, "rgba(47,111,181,.85)"); eg.addColorStop(1, "#4f9be0");
+    g.fillStyle = eg; g.beginPath(); g.arc(cx, cy, re, 0, 2 * Math.PI); g.fill();
+    g.strokeStyle = "rgba(120,170,230,.5)"; g.beginPath(); g.arc(cx, cy, re + 1.5, 0, 2 * Math.PI); g.stroke();
+    // Orbit ring, with the eclipse arc (behind Earth) dimmed.
+    const P = a => [cx + ro * Math.cos(a), cy - ro * Math.sin(a)];
+    g.lineWidth = 1.5; g.strokeStyle = "#484f58"; g.beginPath(); g.arc(cx, cy, ro, 0, 2 * Math.PI); g.stroke();
+    g.strokeStyle = "#161b22"; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, ro, -ECL_OUT, -ECL_IN); g.stroke();
+    g.setLineDash([2, 3]); g.strokeStyle = "#6e7681"; g.lineWidth = 1;
+    g.beginPath(); g.arc(cx, cy, ro, -ECL_OUT, -ECL_IN); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "#6e7681"; g.fillText("eclipse", cx - 17, cy + ro + 16);
+    // Arc flown during this replay so far.
+    g.strokeStyle = C("truth"); g.lineWidth = 2.5;
+    g.beginPath(); g.arc(cx, cy, ro, -sun.th, -TH0); g.stroke();
+    // Station and its frame axes: R-bar outward, V-bar along the orbit.
+    const [sx, sy] = P(sun.th), rx = Math.cos(sun.th), ry = -Math.sin(sun.th);
+    const ax = (dx, dy, col, lab) => {
+      g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + dx * 18, sy + dy * 18); g.stroke();
+      g.font = "9px system-ui, sans-serif"; g.fillText(lab, sx + dx * 22 - 3, sy + dy * 22 + 3);
     };
-    arrow(-1, 0, "#4fa3e0");
-    arrow(0, -1, "#c9d1d9");
-    g.font = "10px system-ui, sans-serif";
-    g.fillStyle = "#4fa3e0"; g.fillText("Earth", cx - L - 4, cy + 14);
-    g.fillStyle = "#c9d1d9"; g.fillText("orbital motion", cx + 6, cy - L + 4);
-    g.fillStyle = "#8b949e";
-    g.fillText(`LEO, ${(D.orbit_period_s / 60).toFixed(1)} min orbit`, cx + 14, cy - 2);
-    g.fillText("frame moves with station", cx + 14, cy + 12);
+    ax(rx, ry, "#4fa3e0", "R");
+    ax(ry, -rx, "#c9d1d9", "V");
+    g.fillStyle = sun.eclipse ? "#8b949e" : "#ffffff";
+    g.beginPath(); g.arc(sx, sy, 3.5, 0, 2 * Math.PI); g.fill();
+    // Readout.
+    const tx = x0 + 164, mm = s => `${Math.floor(s / 60)}m ${String(Math.floor(s % 60)).padStart(2, "0")}s`;
+    g.font = "bold 11px system-ui, sans-serif";
+    g.fillStyle = sun.eclipse ? "#8b949e" : "#ffd166";
+    g.fillText(sun.eclipse ? "ECLIPSE" : "DAYLIGHT", tx, y0 + 34);
+    g.font = "10px system-ui, sans-serif"; g.fillStyle = "#8b949e";
+    g.fillText(`${sun.eclipse ? "sunrise" : "sunset"} in ${mm(sun.next)}`, tx, y0 + 48);
+    g.fillText(`alt ${ALT_KM.toFixed(0)} km`, tx, y0 + 70);
+    g.fillText(`${(D.orbit_period_s / 60).toFixed(1)} min orbit`, tx, y0 + 84);
+    g.fillText(`${(R_ORB * NRATE / 1e3).toFixed(2)} km/s`, tx, y0 + 98);
+    g.fillText(`flown ${(NRATE * t / DEG).toFixed(1)}\u00b0 this run`, tx, y0 + 112);
+    g.fillText("frame turns", tx, y0 + 134); g.fillText(`${(NRATE / DEG).toFixed(3)}\u00b0/s`, tx, y0 + 148);
     g.restore();
   }
 
@@ -874,6 +1043,7 @@
   window.addEventListener("resize", render);
   const qt = parseFloat(new URLSearchParams(location.search).get("t"));
   if (Number.isFinite(qt)) t = qt;
+  if (new URLSearchParams(location.search).get("view") === "chase") $("viewmode").value = "chase";
   render();
 })();
 </script>

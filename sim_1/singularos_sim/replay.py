@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import THRUSTER_NAMES
+from .config import DEFAULT_START_ANGLE_FROM_NOON_DEG, THRUSTER_NAMES
 
 TEMPLATE = Path(__file__).resolve().parent / "replay_template.html"
 
@@ -95,6 +95,7 @@ def build_replay(run_dir, scenarios=None):
         "mission": config["mission"],
         "station": config["station"]["components"],
         "orbit_period_s": config["orbit"]["period_s"],
+        "orbit_start_angle_deg": config["orbit"].get("start_angle_from_noon_deg", DEFAULT_START_ANGLE_FROM_NOON_DEG),
         "docking": config["docking"],
         "max_thrust_n": [config["vehicle"]["thrusters"][n]["max_thrust_n"] for n in THRUSTER_NAMES],
         "monitor_threshold_m_s": config["recovery"]["monitor_threshold_m_s"],

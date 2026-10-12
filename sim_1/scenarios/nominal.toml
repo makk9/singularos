@@ -15,6 +15,10 @@ post_outcome_observe_s = 300.0  # keep simulating this long after HOLD/ABORT
 # from Earth), +y along-track (direction of orbital motion). Relative motion
 # follows the Clohessy-Wiltshire equations.
 period_s = 5554.0           # ~92.6 min, similar to the ISS (~420 km altitude)
+# Station's orbit angle from local noon at t = 0, Sun in the orbit plane.
+# Display only: sets day/night lighting in the replay; physics ignores it.
+# 90 = dusk side, sunset about 310 s into the run.
+start_angle_from_noon_deg = 90.0
 
 [initial_state]
 # Vehicle starts latched at the dock (origin), at rest, nose toward the station.

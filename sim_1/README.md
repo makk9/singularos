@@ -278,6 +278,30 @@ In fault runs the map also shows the particle impact, where the anomaly was
 detected, the recovery path or hold point, and a red mark on the vehicle at the
 failed thruster.
 
+The map is the station (LVLH) frame, so the station stays fixed and the
+vehicle moves around it, as on operational rendezvous plots. Orbital context
+is drawn around it:
+
+- **Stars** are fixed in inertial space, so in the station frame they turn
+  once per orbit (about 0.065°/s).
+- **Sunlight** shades each station part from the Sun's direction, which also
+  turns once per orbit. In Earth's shadow the scene goes dark, stars brighten
+  and the vehicle's strobe flashes. A Sun marker on the map edge shows the
+  direction.
+- **Earth** is below the station (−R-bar), shown as a glow on the left edge.
+- **Orbit panel** (bottom right): an inertial view of Earth, its day and night
+  sides, the station's position on its orbit with the eclipse arc, the arc
+  flown so far, and the time to the next sunset or sunrise.
+- **Thruster plumes** scale with delivered thrust; a particle impact throws a
+  short spray of debris.
+- **Chase view** (View selector, `C` key or `?view=chase`) follows the vehicle
+  at close range so the station moves past.
+
+Lighting assumes the Sun in the orbit plane and is set by
+`[orbit] start_angle_from_noon_deg` (the station's orbit angle from local noon
+at t = 0; default 90, sunset about 310 s into the run). It is display only:
+sensors and physics do not depend on it.
+
 Playback has play/pause, speed, a timeline scrubber and a phase bar. `?t=SECONDS` in the URL
 opens the replay at that time. To rebuild the page for an existing run:
 
